@@ -1,0 +1,281 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-serif-bookerly: 'Literata', 'Newsreader', Georgia, serif;
+    --font-serif-newsreader: 'Newsreader', 'EB Garamond', Georgia, serif;
+    --font-serif-literata: 'Literata', Georgia, serif;
+    --font-serif-garamond: 'EB Garamond', Garamond, serif;
+    --font-serif-lora: 'Lora', Georgia, serif;
+    --font-sans-ember: 'Outfit', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+}
+
+.font-bookerly {
+  font-family: var(--font-serif-bookerly);
+}
+
+.font-newsreader {
+  font-family: var(--font-serif-newsreader);
+}
+
+.font-literata {
+  font-family: var(--font-serif-literata);
+}
+
+.font-garamond {
+  font-family: var(--font-serif-garamond);
+}
+
+.font-lora {
+  font-family: var(--font-serif-lora);
+}
+
+.font-ember {
+  font-family: var(--font-sans-ember);
+}
+
+.font-sans-ui {
+  font-family: var(--font-sans);
+}
+
+/* Authentic Kindle E-Ink Carta Paper Backgrounds & Aesthetics */
+.bg-kindle-carta {
+  background-color: #EAE8E3;
+}
+
+.bg-kindle-paper {
+  background-color: #F2F1EC;
+}
+
+.bg-kindle-surface {
+  background-color: #F8F7F4;
+}
+
+.border-kindle-subtle {
+  border-color: #D3D1C9;
+}
+
+.border-kindle-medium {
+  border-color: #A3A199;
+}
+
+.border-kindle-dark {
+  border-color: #2D2C2A;
+}
+
+.text-kindle-ink {
+  color: #121212;
+}
+
+.text-kindle-muted {
+  color: #5A5852;
+}
+
+/* E-Reader Selection Highlight - simple, muted grey background matching reference */
+::selection {
+  background-color: #cbd5e1;
+  color: #0f172a;
+}
+
+.select-text,
+.reader-selectable,
+.e-reader-body,
+.kindle-reflow-content {
+  -webkit-touch-callout: none !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+.eink-selection ::selection {
+  background-color: #cbd5e1 !important;
+  color: #000000 !important;
+}
+
+.eink-selection-dark ::selection {
+  background-color: #475569 !important;
+  color: #ffffff !important;
+}
+
+.eink-selection-sepia ::selection {
+  background-color: #d6c6b0 !important;
+  color: #2c2214 !important;
+}
+
+.eink-selection-warm-sepia ::selection {
+  background-color: #ded1b8 !important;
+  color: #2c2825 !important;
+}
+
+/* Device Frame Aesthetics */
+.mint-bezel {
+  background-color: #b7dac8;
+  box-shadow: 
+    0 25px 50px -12px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(255, 255, 255, 0.15) inset,
+    0 -1px 3px 0 rgba(0, 0, 0, 0.2) inset;
+}
+
+.mint-bezel-inner-shadow {
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Custom Sleek Scrollbar - Ultra-thin (2px), subtle and light-toned */
+::-webkit-scrollbar {
+  width: 2px;
+  height: 2px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(200, 200, 200, 0.18);
+  border-radius: 9999px;
+  transition: background-color 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(220, 220, 220, 0.35);
+}
+
+/* Firefox scrollbar support */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(200, 200, 200, 0.18) transparent;
+}
+
+/* Hide scrollbar completely on reading containers */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Kindle Sleek Slider / Scrubber Bar - Ultra thin line and tiny, lightweight dot */
+.kindle-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.15);
+  height: 1.5px;
+  border-radius: 9999px;
+  outline: none;
+  transition: background 0.2s ease;
+}
+
+.kindle-slider:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* WebKit thumb */
+.kindle-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #a1a1aa;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.kindle-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.3);
+  background: #e4e4e7;
+}
+
+.kindle-slider::-webkit-slider-thumb:active {
+  transform: scale(1.4);
+  background: #ffffff;
+}
+
+/* Firefox thumb */
+.kindle-slider::-moz-range-thumb {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #a1a1aa;
+  border: none;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.kindle-slider::-moz-range-thumb:hover {
+  transform: scale(1.3);
+  background: #e4e4e7;
+}
+
+/* Prevent accidental text select while tapping pages */
+.tap-zone {
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Reflow E-Reader Text Selection & Mobile Touch Callout Suppression (Blocks native Copy/Share/Web search popup) */
+.reflow-reader-content,
+.reflow-reader-content * {
+  -webkit-touch-callout: none !important;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.reflow-reader-content mark.kindle-highlight {
+  -webkit-touch-callout: none !important;
+}
+
+/* PDF.js Text Layer Styling */
+.pdf-text-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  line-height: 1.0;
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+  pointer-events: auto;
+  opacity: 1;
+  text-align: initial;
+  transform-origin: 0 0;
+}
+
+.pdf-text-layer span,
+.pdf-text-layer span[role="presentation"] {
+  color: transparent !important;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  font-size: var(--font-height, 14px);
+  transform: rotate(var(--rotate, 0deg)) scaleX(var(--scale-x, 1));
+  transition: background-color 0.15s ease;
+}
+
+.pdf-text-layer mark.pdf-highlight-mark {
+  color: transparent !important;
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  transition: background-color 0.15s ease;
+  line-height: inherit;
+  display: inline;
+}
+
+.pdf-text-layer ::selection {
+  background: rgba(250, 204, 21, 0.45) !important;
+  color: transparent !important;
+}

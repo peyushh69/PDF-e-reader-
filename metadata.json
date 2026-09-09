@@ -1,0 +1,6 @@
+{
+  "name": "E-Reader Dashboard & PDF Reading Suite",
+  "description": "A distraction-free Kindle & Kobo inspired e-reader dashboard with e-ink reading interface, Google Drive & local PDF support, and reading statistics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
