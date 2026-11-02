@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { Cloud, X, Check, RefreshCw, HardDrive, Download, ShieldCheck } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { X } from 'lucide-react';
 import { Book } from '../types';
-import { createPdfDataUrl } from '../utils/pdfGenerator';
+import { pdfjsLib } from '../utils/pdfSetup';
+import { savePdfToStorage, createBookCoverDataUrl } from '../utils/pdfStorage';
 
 interface GoogleDriveModalProps {
   isOpen: boolean;
@@ -9,240 +10,158 @@ interface GoogleDriveModalProps {
   onImportDriveBook: (book: Book) => void;
 }
 
-interface DriveFileItem {
-  id: string;
-  name: string;
-  size: string;
-  modifiedTime: string;
-  pages: number;
-  author: string;
-  sampleContent: string[];
-}
-
-const SAMPLE_DRIVE_FILES: DriveFileItem[] = [
-  {
-    id: 'drive-doc-1',
-    name: 'Irish Peace Accord & Historical Charters.pdf',
-    size: '3.4 MB',
-    modifiedTime: '2 days ago',
-    pages: 3,
-    author: 'Historical Research Archive',
-    sampleContent: [
-      `Historical Context of the Anglo-Irish Agreement 1985\n\nThe signing of the Anglo-Irish Agreement on 15 November 1985 marked a decisive turning point in relations between London and Dublin. For the first time, the British Government formally recognized that the Republic of Ireland had a legitimate consultative role in Northern Ireland's governance.\n\nJohn Hume played an indispensable behind-the-scenes role, drafting key policy memorandums that influenced both Taoiseach Garret FitzGerald and Prime Minister Margaret Thatcher.`,
-      `The Three-Strand Philosophy in Action\n\n1. Internal Democratic Framework: Power-sharing executive based on mutual coalition rather than majoritarian dominance.\n2. North-South Ministerial Body: Joint implementation bodies overseeing tourism, waterways, food safety, and trade.\n3. British-Irish Intergovernmental Conference: Bilateral sovereignty coordination and human rights oversight.`,
-      `Civil Rights and Electoral Re-alignment\n\nThe campaign for equitable civil representation dismantled longstanding discriminatory electoral boundaries and secured universal adult franchise across all local government districts.`
-    ],
-  },
-  {
-    id: 'drive-doc-2',
-    name: 'E-Reader Optical Ergonomics & Carta 1300.pdf',
-    size: '1.8 MB',
-    modifiedTime: '1 week ago',
-    pages: 2,
-    author: 'Display Standards Institute',
-    sampleContent: [
-      `Optoelectronic Performance of Modern Electronic Paper\n\nElectrophoretic displays offer lambertian reflection characteristics virtually identical to natural pulp paper. Unlike active matrix OLED emitters, which produce high peak luminance spikes in the short-wave blue spectrum, E-Ink screens reflect ambient photons.`,
-      `Waveform Micro-Controllers and Fast Page Turning\n\nModern Carta 1300 panels achieve sub-120ms page transitions through specialized 5-level waveform voltage drivers, providing seamless reading without visible ghosting.`
-    ],
-  },
-  {
-    id: 'drive-doc-3',
-    name: 'The Philosophy of Solitary Contemplation.pdf',
-    size: '2.1 MB',
-    modifiedTime: '3 weeks ago',
-    pages: 2,
-    author: 'Dr. Alistair Finch',
-    sampleContent: [
-      `The Quiet Mind in the Digital Age\n\nDeep reading functions as an cognitive sanctuary. In an era dominated by hyper-fragmented feeds, immersing oneself in sustained long-form prose trains sustained executive attention and emotional regulation.`,
-      `The Discipline of Stillness\n\nWhen we sit with an electronic ink display or physical page without distraction, we cultivate the contemplative depth that modern work demands.`
-    ],
-  },
-];
-
 export const GoogleDriveModal: React.FC<GoogleDriveModalProps> = ({
   isOpen,
   onClose,
   onImportDriveBook,
 }) => {
-  const [isConnected] = useState(true);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [importedIds, setImportedIds] = useState<string[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
-  const handleSync = () => {
-    setIsSyncing(true);
-    setTimeout(() => {
-      setIsSyncing(false);
-    }, 800);
+  const handleDriveFileSelect = async (file: File) => {
+    if (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf') {
+      setError('Please select a valid .pdf document.');
+      return;
+    }
+
+    setIsImporting(true);
+    setError(null);
+
+    try {
+      const bookId = `drive-pdf-${Date.now()}`;
+      const rawBuffer = await file.arrayBuffer();
+      const uint8 = new Uint8Array(rawBuffer);
+      const blobUrl = await savePdfToStorage(bookId, uint8);
+
+      let totalPages = 1;
+      let coverThumbnail: string | null = null;
+
+      try {
+        const loadingTask = pdfjsLib.getDocument({ data: uint8.slice() });
+        const pdfDoc = await loadingTask.promise;
+        totalPages = pdfDoc.numPages || 1;
+
+        try {
+          const page1 = await pdfDoc.getPage(1);
+          const viewport = page1.getViewport({ scale: 0.55 });
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            await page1.render({
+              canvasContext: ctx,
+              viewport,
+              canvas,
+            } as any).promise;
+            coverThumbnail = canvas.toDataURL('image/jpeg', 0.85);
+          }
+        } catch {
+          // Fallback cover below
+        }
+      } catch {
+        totalPages = 1;
+      }
+
+      const cleanTitle = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+      const finalTitle = cleanTitle.replace(/\b\w/g, (l) => l.toUpperCase());
+
+      const fallbackCover = createBookCoverDataUrl({
+        title: finalTitle,
+        author: 'Google Drive',
+        subtitle: 'Cloud PDF',
+        bgHex: '#383633',
+        accentHex: '#DBD9D3',
+      });
+
+      const newBook: Book = {
+        id: bookId,
+        title: finalTitle,
+        author: 'Google Drive Document',
+        coverUrl: coverThumbnail || fallbackCover,
+        source: 'drive',
+        format: 'pdf',
+        totalPages: totalPages || 1,
+        currentPage: 1,
+        progressPercent: 0,
+        fileSize: `${Math.max(0.1, file.size / (1024 * 1024)).toFixed(1)} MB`,
+        addedDate: new Date().toISOString().split('T')[0],
+        totalTimeReadMinutes: 0,
+        pdfDataUrl: blobUrl,
+        preferredReadingMode: 'reflow-ereader',
+        stackIds: [],
+        bookmarks: [],
+        highlights: [],
+      };
+
+      onImportDriveBook(newBook);
+      onClose();
+    } catch (err: any) {
+      setError(`Failed to import PDF: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsImporting(false);
+    }
   };
-
-  const handleImport = (file: DriveFileItem) => {
-    const pdfDataUrl = createPdfDataUrl({
-      title: file.name.replace('.pdf', ''),
-      author: file.author,
-      pages: file.sampleContent.map((text, idx) => ({
-        title: `Page ${idx + 1}`,
-        paragraphs: text.split('\n\n').filter((p) => p.trim().length > 0),
-      })),
-    });
-
-    const newBook: Book = {
-      id: `drive-${file.id}`,
-      title: file.name.replace('.pdf', ''),
-      author: file.author,
-      coverUrl: 'https://images.unsplash.com/photo-1457369804613-52c61a468e7d?auto=format&fit=crop&w=400&q=80',
-      source: 'drive',
-      format: 'pdf',
-      totalPages: file.pages,
-      currentPage: 1,
-      progressPercent: 0,
-      fileSize: file.size,
-      addedDate: new Date().toISOString().split('T')[0],
-      totalTimeReadMinutes: 0,
-      driveFileId: file.id,
-      pdfDataUrl,
-      contentPages: file.sampleContent,
-      preferredReadingMode: 'reflow-ereader',
-      stackIds: ['stack-research'],
-      bookmarks: [],
-      highlights: [],
-    };
-
-    setImportedIds((prev) => [...prev, file.id]);
-    onImportDriveBook(newBook);
-  };
-
-  const filteredFiles = SAMPLE_DRIVE_FILES.filter((f) =>
-    f.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    f.author.toLowerCase().includes(searchQuery.toLowerCase())
-  );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in font-sans">
-      <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[85vh]">
-        
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs font-sans">
+      <div className="relative w-full max-w-md bg-[#E2E0DA] text-[#2B2A27] rounded-xl shadow-2xl border border-[#5A5852] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="px-6 py-4 bg-stone-50 border-b border-stone-200 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-black text-white flex items-center justify-center font-bold">
-              <Cloud size={18} />
-            </div>
-            <div>
-              <h3 className="font-bold text-stone-900 text-base flex items-center gap-2">
-                Google Drive Integration
-                {isConnected && (
-                  <span className="text-[10px] font-semibold text-stone-800 bg-stone-100 border border-stone-300 px-2 py-0.5 rounded-full flex items-center gap-1">
-                    <ShieldCheck size={11} /> Connected
-                  </span>
-                )}
-              </h3>
-              <p className="text-xs text-stone-500">Sync & Read PDFs directly from your Google Drive</p>
-            </div>
-          </div>
+        <div className="px-5 py-3.5 bg-[#DBD9D3] border-b border-[#B8B6AF] flex items-center justify-between">
+          <h3 className="font-semibold text-[#2B2A27] text-sm">Google Drive</h3>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition"
+            className="p-1 rounded-md text-[#575550] hover:text-[#2B2A27] hover:bg-[#D2D0C9] transition cursor-pointer"
+            aria-label="Close"
           >
-            <X size={18} />
-          </button>
-        </div>
-
-        {/* Connection Banner */}
-        <div className="p-4 bg-stone-100 border-b border-stone-200 flex items-center justify-between text-xs text-stone-800">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-black animate-pulse" />
-            <span>Authenticated account: <strong>reader.library@gmail.com</strong></span>
-          </div>
-          <button
-            onClick={handleSync}
-            className="flex items-center gap-1 text-[11px] font-semibold text-stone-800 hover:text-black bg-white px-2.5 py-1 rounded-md border border-stone-300 shadow-xs"
-          >
-            <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
-            {isSyncing ? 'Refreshing...' : 'Refresh Drive'}
+            <X size={16} />
           </button>
         </div>
 
         {/* Content Body */}
-        <div className="p-6 flex-1 overflow-y-auto space-y-4">
-          
-          {/* Search Bar */}
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Search PDF files in Google Drive..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-xs border border-stone-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-black focus:border-black bg-stone-50"
-            />
-            <HardDrive size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
-          </div>
-
-          {/* Files List */}
-          <div className="space-y-2.5">
-            <div className="text-xs font-bold uppercase tracking-wider text-stone-500">
-              Found {filteredFiles.length} PDF Documents
+        <div className="p-5 space-y-4">
+          {error && (
+            <div className="p-2.5 bg-[#E5D5D5] border border-[#9E6B6B] rounded-lg text-xs text-[#5C2626]">
+              {error}
             </div>
+          )}
 
-            {filteredFiles.map((file) => {
-              const isImported = importedIds.includes(file.id);
-              return (
-                <div
-                  key={file.id}
-                  className="p-3.5 rounded-xl border border-stone-200 bg-white hover:border-black hover:bg-stone-50 transition flex items-center justify-between gap-3 shadow-2xs"
-                >
-                  <div className="flex items-start gap-3 min-w-0">
-                    <div className="w-8 h-10 rounded bg-stone-100 border border-stone-300 text-stone-800 flex items-center justify-center font-bold text-[10px] flex-shrink-0 mt-0.5">
-                      PDF
-                    </div>
-                    <div className="min-w-0">
-                      <h4 className="text-xs font-bold text-stone-900 truncate font-serif">{file.name}</h4>
-                      <p className="text-[11px] text-stone-500">
-                        {file.author} · {file.size} · {file.pages} pages · {file.modifiedTime}
-                      </p>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => handleImport(file)}
-                    disabled={isImported}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 flex-shrink-0 transition-all ${
-                      isImported
-                        ? 'bg-stone-100 text-stone-600 border border-stone-200 cursor-default'
-                        : 'bg-black hover:bg-stone-800 text-white shadow-xs'
-                    }`}
-                  >
-                    {isImported ? (
-                      <>
-                        <Check size={13} />
-                        <span>In Library</span>
-                      </>
-                    ) : (
-                      <>
-                        <Download size={13} />
-                        <span>Import PDF</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              );
-            })}
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            className="border border-dashed border-[#6E6C66] hover:border-[#2B2A27] bg-[#DBD9D3] hover:bg-[#D2D0C9] rounded-xl p-6 text-center cursor-pointer transition"
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,application/pdf"
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files && e.target.files[0]) {
+                  handleDriveFileSelect(e.target.files[0]);
+                }
+              }}
+            />
+            <div className="text-xs font-medium text-[#2B2A27]">
+              {isImporting ? 'Importing PDF...' : 'Select PDF from Google Drive folder'}
+            </div>
+            <p className="text-[11px] text-[#575550] mt-1">
+              Import PDF documents into your Drive collection
+            </p>
           </div>
-
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 bg-stone-50 border-t border-stone-200 flex items-center justify-between text-xs text-stone-500">
-          <span>Google Drive OAuth 2.0 Scope: <code className="text-[10px] bg-stone-200/80 px-1.5 py-0.5 rounded">drive.readonly</code></span>
+        <div className="px-5 py-3 bg-[#DBD9D3] border-t border-[#B8B6AF] flex items-center justify-end gap-2">
           <button
             onClick={onClose}
-            className="px-4 py-1.5 font-bold bg-black text-white hover:bg-stone-800 rounded-lg transition"
+            className="px-4 py-1.5 text-xs font-medium bg-[#383633] text-[#EAE8E2] hover:bg-[#2B2A27] rounded-lg transition cursor-pointer"
           >
-            Done
+            Close
           </button>
         </div>
-
       </div>
     </div>
   );

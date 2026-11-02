@@ -141,32 +141,36 @@ export const KindleAnnotationToolbar: React.FC<KindleAnnotationToolbarProps> = (
     onClose();
   };
 
-  // Compute smart viewport positioning (guarantee it NEVER covers the selected text)
+  // Compute smart viewport positioning (guarantee it NEVER covers the selected text or top header)
   const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 800;
   const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 600;
   const toolbarWidth = Math.min(screenWidth - 24, 330);
-  const estimatedToolbarHeight = 84;
-  const gap = 16; // strict safety clearance
+  const estimatedToolbarHeight = 96;
+  const headerSafeBottom = 56; // keep clear of top header (48px)
+  const footerSafeTop = screenHeight - 46; // keep clear of bottom footer (36px)
+  const gap = 18; // clearance from selected text & touch handles
 
   const centerX = selection.rect.left + selection.rect.width / 2;
   const leftPos = Math.max(12, Math.min(screenWidth - toolbarWidth - 12, centerX - toolbarWidth / 2));
 
   // Determine top position:
-  // If there's enough space above the selection (at least 90px from screen top), open ABOVE
-  // Otherwise open safely BELOW selection.rect.bottom
+  // Prefer placing ABOVE selection if there is room below the top header;
+  // otherwise place BELOW selection; if the selection spans most of the screen, place cleanly below the top header.
   let topPos: number;
-  let isPlacedAbove = true;
 
-  if (selection.rect.top >= estimatedToolbarHeight + gap + 50) {
+  if (selection.rect.top - estimatedToolbarHeight - gap >= headerSafeBottom) {
     topPos = selection.rect.top - estimatedToolbarHeight - gap;
-    isPlacedAbove = true;
-  } else {
+  } else if (selection.rect.bottom + gap + estimatedToolbarHeight <= footerSafeTop) {
     topPos = selection.rect.bottom + gap;
-    isPlacedAbove = false;
+  } else {
+    topPos = headerSafeBottom;
   }
 
-  // Safety clamp so toolbar is never clipped by screen borders
-  topPos = Math.max(10, Math.min(screenHeight - estimatedToolbarHeight - 10, topPos));
+  // Safety clamp so toolbar never overlaps header or footer
+  topPos = Math.max(
+    headerSafeBottom,
+    Math.min(footerSafeTop - estimatedToolbarHeight, topPos)
+  );
 
   // Escape key listener
   useEffect(() => {

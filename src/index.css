@@ -10,6 +10,14 @@
     --font-sans-ember: 'Outfit', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
     --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
   }
+
+  html,
+  body {
+    background-color: #DBD9D3;
+    color: #2B2A27;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
 }
 
 .font-bookerly {
@@ -40,37 +48,37 @@
   font-family: var(--font-sans);
 }
 
-/* Authentic Kindle E-Ink Carta Paper Backgrounds & Aesthetics */
+/* Soft Matte E-Ink Paper Backgrounds & Aesthetics */
 .bg-kindle-carta {
-  background-color: #EAE8E3;
+  background-color: #DBD9D3;
 }
 
 .bg-kindle-paper {
-  background-color: #F2F1EC;
+  background-color: #E2E0DA;
 }
 
 .bg-kindle-surface {
-  background-color: #F8F7F4;
+  background-color: #E6E4DE;
 }
 
 .border-kindle-subtle {
-  border-color: #D3D1C9;
+  border-color: #B8B6AF;
 }
 
 .border-kindle-medium {
-  border-color: #A3A199;
+  border-color: #6E6C66;
 }
 
 .border-kindle-dark {
-  border-color: #2D2C2A;
+  border-color: #2B2A27;
 }
 
 .text-kindle-ink {
-  color: #121212;
+  color: #2B2A27;
 }
 
 .text-kindle-muted {
-  color: #5A5852;
+  color: #575550;
 }
 
 /* E-Reader Selection Highlight - simple, muted grey background matching reference */
