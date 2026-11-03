@@ -15,7 +15,38 @@ import {
   collection,
   onSnapshot,
 } from 'firebase/firestore';
-import firebaseConfig from '../firebase-applet-config.json';
+
+interface FirebaseAppletConfig {
+  projectId: string;
+  appId: string;
+  apiKey: string;
+  authDomain: string;
+  firestoreDatabaseId?: string;
+  storageBucket?: string;
+  messagingSenderId?: string;
+  measurementId?: string;
+}
+
+// Load local firebase-applet-config.json when present (AI Studio runtime),
+// without failing builds on GitHub/Vercel when firebase-applet-config.json is gitignored.
+const localConfigModules = import.meta.glob<{ default: FirebaseAppletConfig }>(
+  '../firebase-applet-config.json',
+  { eager: true }
+);
+const localConfig: Partial<FirebaseAppletConfig> =
+  localConfigModules['../firebase-applet-config.json']?.default ?? {};
+
+const firebaseConfig: FirebaseAppletConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || localConfig.apiKey || '',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || localConfig.authDomain || '',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || localConfig.projectId || '',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || localConfig.storageBucket || '',
+  messagingSenderId:
+    import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || localConfig.messagingSenderId || '',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || localConfig.appId || '',
+  firestoreDatabaseId:
+    import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || localConfig.firestoreDatabaseId,
+};
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
