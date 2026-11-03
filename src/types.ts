@@ -75,6 +75,10 @@ export interface Book {
   pdfDataUrl?: string;
   pdfFile?: File;
 
+  uid?: string;
+  hasCloudBinary?: boolean;
+  chunkCount?: number;
+
   // User annotations & categorization
   stackIds?: string[];
   bookmarks: Bookmark[];

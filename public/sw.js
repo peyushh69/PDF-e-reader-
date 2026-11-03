@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bookshelf-pwa-v3';
+const CACHE_NAME = 'bookshelf-pwa-v4';
 const STATIC_ASSETS = [
   '/manifest.webmanifest',
   '/pwa-192x192.png',

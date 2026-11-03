@@ -22,8 +22,8 @@ import {
   Square,
   RotateCw,
 } from 'lucide-react';
-import { pdfjsLib } from '../utils/pdfSetup';
-import { resolveBookPdfBytes } from '../utils/pdfStorage';
+import { pdfjsLib, loadPdfDocumentSafe } from '../utils/pdfSetup';
+import { resolveBookPdfBytes, savePdfToStorage } from '../utils/pdfStorage';
 import { extractPageForReflow } from '../utils/pdfReflowEngine';
 import { AnnotationToolbar, SelectionRangeData } from './AnnotationToolbar';
 import { NotesAndHighlightsModal } from './NotesAndHighlightsModal';
@@ -34,6 +34,7 @@ interface ReadingInterfaceProps {
   onChangeTheme?: (theme: ThemeMode) => void;
   onBackToDashboard: () => void;
   onUpdateProgress: (bookId: string, page: number, secondsRead: number) => void;
+  onUpdateBookTotalPages?: (bookId: string, totalPages: number) => void;
   onAddBookmark: (bookId: string, page: number) => void;
   onAddHighlight: (bookId: string, highlight: Highlight) => void;
   onUpdateHighlight?: (bookId: string, highlight: Highlight) => void;
@@ -124,6 +125,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
   onChangeTheme,
   onBackToDashboard,
   onUpdateProgress,
+  onUpdateBookTotalPages,
   onAddBookmark,
   onAddHighlight,
   onUpdateHighlight,
@@ -173,6 +175,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
   const [pdfLoading, setPdfLoading] = useState<boolean>(false);
   const [pdfRendering, setPdfRendering] = useState<boolean>(false);
   const [pdfRenderError, setPdfRenderError] = useState<string | null>(null);
+  const [pdfReloadTrigger, setPdfReloadTrigger] = useState<number>(0);
   const [extractedTextCache, setExtractedTextCache] = useState<Record<number, string>>({});
   const [isExtractingText, setIsExtractingText] = useState<boolean>(false);
   const [slideDirection, setSlideDirection] = useState<'next' | 'prev'>('next');
@@ -180,6 +183,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
   const touchStartXRef = useRef<number | null>(null);
   const touchStartYRef = useRef<number | null>(null);
   const initialMountRef = useRef<boolean>(true);
+  const reattachInputRef = useRef<HTMLInputElement>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dualCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -197,6 +201,25 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
 
   const isMobile = containerDimensions.width < 640;
   const isTablet = containerDimensions.width >= 640 && containerDimensions.width < 1024;
+
+  const handleReattachPdfFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setPdfLoading(true);
+      setPdfRenderError(null);
+      const buf = await file.arrayBuffer();
+      const uint8 = new Uint8Array(buf);
+      await savePdfToStorage(book.id, uint8, book.uid);
+      setExtractedTextCache({});
+      setPdfReloadTrigger((n) => n + 1);
+    } catch (err) {
+      console.warn('Reattach PDF error:', err);
+      setPdfLoading(false);
+    } finally {
+      e.target.value = '';
+    }
+  };
 
   // Measure container dimensions for responsive rendering
   useEffect(() => {
@@ -222,7 +245,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
     };
   }, []);
 
-  // 1. Load PDF Document Instance (works for Sample, Drive, and Uploaded Local PDFs)
+  // 1. Load PDF Document Instance (works for Sample, Drive, Cloud-Synced, and Uploaded Local PDFs)
   useEffect(() => {
     let isCancelled = false;
 
@@ -241,18 +264,22 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
         if (!rawBytes || rawBytes.length === 0) {
           if (!isCancelled) {
             setPdfLoading(false);
-            setPdfRenderError('PDF binary not available. Reading in Reflow mode.');
+            setPdfRenderError(
+              'This book was uploaded on another device before Cloud PDF Sync was enabled. Select the PDF file once to open and sync across all your devices.'
+            );
           }
           return;
         }
 
-        const loadingTask = pdfjsLib.getDocument({ data: rawBytes.slice() });
-        const doc = await loadingTask.promise;
+        const doc = await loadPdfDocumentSafe(rawBytes);
 
         if (!isCancelled) {
           setPdfDoc(doc);
           if (doc.numPages && doc.numPages > 0) {
             setTotalPages(doc.numPages);
+            if (doc.numPages !== book.totalPages) {
+              onUpdateBookTotalPages?.(book.id, doc.numPages);
+            }
           }
           setPdfLoading(false);
         }
@@ -260,7 +287,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
         console.warn('PDF document load notice:', err);
         if (!isCancelled) {
           setPdfLoading(false);
-          setPdfRenderError('Unable to render original PDF layout. Reading in Reflow mode.');
+          setPdfRenderError('Unable to render original PDF layout. Select PDF file or switch to Reflow.');
         }
       }
     }
@@ -270,7 +297,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
     return () => {
       isCancelled = true;
     };
-  }, [book.id, book.pdfDataUrl, isPdf]);
+  }, [book.id, isPdf, pdfReloadTrigger]);
 
   // Sync state when switching books
   useEffect(() => {
@@ -1852,15 +1879,25 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
                 </div>
               )}
 
-              {pdfRenderError && !pdfRendering && (
-                <div className="p-6 text-center space-y-3 bg-stone-900 text-white rounded-lg shadow-lg border border-stone-700 max-w-sm">
-                  <p className="text-xs text-stone-300">{pdfRenderError}</p>
-                  <button
-                    onClick={() => setReadingMode('reflow-ereader')}
-                    className="px-4 py-2 bg-white text-black rounded-md text-xs font-semibold hover:bg-stone-200 transition cursor-pointer"
-                  >
-                    Switch to Reflow
-                  </button>
+              {pdfRenderError && !pdfRendering && !pdfLoading && (
+                <div className="p-6 text-center space-y-3.5 bg-stone-900 text-white rounded-xl shadow-lg border border-stone-700 max-w-sm">
+                  <p className="text-xs text-stone-300 leading-relaxed">{pdfRenderError}</p>
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => reattachInputRef.current?.click()}
+                      className="w-full sm:w-auto px-4 py-2 bg-white text-black rounded-md text-xs font-semibold hover:bg-stone-200 transition cursor-pointer"
+                    >
+                      Select PDF File
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReadingMode('reflow-ereader')}
+                      className="w-full sm:w-auto px-3.5 py-2 bg-stone-800 text-stone-200 border border-stone-600 rounded-md text-xs font-medium hover:bg-stone-700 transition cursor-pointer"
+                    >
+                      Switch to Reflow
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -1936,16 +1973,43 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
                 </button>
               )}
             </div>
+            <input
+              ref={reattachInputRef}
+              type="file"
+              accept=".pdf,application/pdf"
+              className="hidden"
+              onChange={handleReattachPdfFile}
+            />
           </div>
         ) : (
           /* Reflow Mode */
           <div
             className={`w-full max-w-2xl h-full flex flex-col justify-between py-4 sm:py-6 ${marginClass} select-text reflow-reader-content relative z-10 overflow-hidden`}
           >
-            {isExtractingText && (
+            <input
+              ref={reattachInputRef}
+              type="file"
+              accept=".pdf,application/pdf"
+              className="hidden"
+              onChange={handleReattachPdfFile}
+            />
+            {(isExtractingText || pdfLoading) && (
               <div className="text-xs opacity-70 font-sans flex items-center gap-1.5 mb-2">
                 <RefreshCw size={12} className="animate-spin" />
-                <span>Formatting page {currentPage}...</span>
+                <span>{pdfLoading ? 'Syncing PDF document...' : `Formatting page ${currentPage}...`}</span>
+              </div>
+            )}
+
+            {pdfRenderError && !pdfDoc && !pdfLoading && (!book.contentPages || book.contentPages.length === 0) && (
+              <div className="my-auto mx-auto p-6 text-center space-y-3 bg-stone-900 text-white rounded-xl shadow-lg border border-stone-700 max-w-sm font-sans">
+                <p className="text-xs text-stone-300 leading-relaxed">{pdfRenderError}</p>
+                <button
+                  type="button"
+                  onClick={() => reattachInputRef.current?.click()}
+                  className="px-4 py-2 bg-white text-black rounded-md text-xs font-semibold hover:bg-stone-200 transition cursor-pointer"
+                >
+                  Select PDF File
+                </button>
               </div>
             )}
 

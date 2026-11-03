@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { X } from 'lucide-react';
 import { Book } from '../types';
-import { pdfjsLib } from '../utils/pdfSetup';
+import { loadPdfDocumentSafe } from '../utils/pdfSetup';
 import { savePdfToStorage, createBookCoverDataUrl } from '../utils/pdfStorage';
 
 interface GoogleDriveModalProps {
@@ -40,8 +40,7 @@ export const GoogleDriveModal: React.FC<GoogleDriveModalProps> = ({
       let coverThumbnail: string | null = null;
 
       try {
-        const loadingTask = pdfjsLib.getDocument({ data: uint8.slice() });
-        const pdfDoc = await loadingTask.promise;
+        const pdfDoc = await loadPdfDocumentSafe(uint8);
         totalPages = pdfDoc.numPages || 1;
 
         try {

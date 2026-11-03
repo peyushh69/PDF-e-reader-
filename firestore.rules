@@ -82,9 +82,20 @@ service cloud.firestore {
         && data.currentPage is number && data.currentPage >= 1
         && (!('progressPercent' in data) || (data.progressPercent is number && data.progressPercent >= 0 && data.progressPercent <= 100))
         && (!('totalTimeReadMinutes' in data) || (data.totalTimeReadMinutes is number && data.totalTimeReadMinutes >= 0))
+        && (!('hasCloudBinary' in data) || data.hasCloudBinary is bool)
+        && (!('chunkCount' in data) || (data.chunkCount is number && data.chunkCount >= 0 && data.chunkCount <= 200))
         && (!('stackIds' in data) || (data.stackIds is list && data.stackIds.size() <= 100))
         && (!('bookmarks' in data) || (data.bookmarks is list && data.bookmarks.size() <= 500))
         && (!('highlights' in data) || (data.highlights is list && data.highlights.size() <= 1000));
+    }
+
+    function isValidBookChunk(userId, bookId) {
+      let data = request.resource.data;
+      return data.uid is string && data.uid == userId
+        && data.bookId is string && data.bookId == bookId
+        && data.index is number && data.index >= 0 && data.index <= 200
+        && data.totalChunks is number && data.totalChunks >= 1 && data.totalChunks <= 200
+        && data.data is string && data.data.size() >= 1 && data.data.size() <= 750000;
     }
 
     function isValidUserStack(userId) {
@@ -108,6 +119,12 @@ service cloud.firestore {
         allow create: if isOwner(userId) && isValidUserBook(userId);
         allow update: if isOwner(userId) && isValidUserBook(userId) && request.resource.data.uid == resource.data.uid;
         allow delete: if isOwner(userId);
+
+        match /chunks/{chunkId} {
+          allow read: if isOwner(userId);
+          allow create, update: if isOwner(userId) && isValidBookChunk(userId, bookId);
+          allow delete: if isOwner(userId);
+        }
       }
 
       match /stacks/{stackId} {

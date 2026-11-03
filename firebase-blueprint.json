@@ -43,11 +43,26 @@
         "totalTimeReadMinutes": { "type": "number" },
         "isFinished": { "type": "boolean" },
         "preferredReadingMode": { "type": "string", "enum": ["original-pdf", "reflow-ereader"] },
+        "hasCloudBinary": { "type": "boolean" },
+        "chunkCount": { "type": "number" },
         "stackIds": { "type": "array", "items": { "type": "string" } },
         "bookmarks": { "type": "array", "items": { "type": "object" } },
         "highlights": { "type": "array", "items": { "type": "object" } }
       },
       "required": ["id", "uid", "title", "author", "totalPages", "currentPage"]
+    },
+    "BookChunk": {
+      "title": "BookChunk",
+      "description": "Base64-encoded binary chunk of an uploaded PDF file for cross-device sync.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "bookId": { "type": "string" },
+        "index": { "type": "number" },
+        "totalChunks": { "type": "number" },
+        "data": { "type": "string" }
+      },
+      "required": ["uid", "bookId", "index", "totalChunks", "data"]
     },
     "UserStack": {
       "title": "UserStack",
@@ -72,6 +87,10 @@
     "/users/{userId}/books/{bookId}": {
       "schema": { "$ref": "#/entities/UserBook" },
       "description": "Stores books uploaded or read by the user."
+    },
+    "/users/{userId}/books/{bookId}/chunks/{chunkId}": {
+      "schema": { "$ref": "#/entities/BookChunk" },
+      "description": "Stores binary chunks of the uploaded PDF for cross-device synchronization."
     },
     "/users/{userId}/stacks/{stackId}": {
       "schema": { "$ref": "#/entities/UserStack" },

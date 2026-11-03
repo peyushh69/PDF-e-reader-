@@ -19,7 +19,12 @@ import { GoogleDriveModal } from './components/GoogleDriveModal';
 import { ThemeAndEyeProtectionModal } from './components/ThemeAndEyeProtectionModal';
 import { LoginView, AppUserProfile } from './components/LoginView';
 import { BookshelfWordmark } from './components/BookshelfWordmark';
-import { deletePdfFromStorage, createBookCoverDataUrl } from './utils/pdfStorage';
+import {
+  deletePdfFromStorage,
+  createBookCoverDataUrl,
+  getPdfFromStorage,
+  uploadPdfChunksToCloud,
+} from './utils/pdfStorage';
 import {
   auth,
   db,
@@ -155,6 +160,8 @@ function prepareBookForFirestore(uid: string, book: Book): Record<string, any> {
     totalTimeReadMinutes: Math.max(0, Number(book.totalTimeReadMinutes) || 0),
     isFinished: Boolean(book.isFinished),
     preferredReadingMode: book.preferredReadingMode || 'reflow-ereader',
+    hasCloudBinary: book.hasCloudBinary,
+    chunkCount: book.chunkCount,
     stackIds: Array.isArray(book.stackIds) ? book.stackIds.slice(0, 100) : [],
     bookmarks: Array.isArray(book.bookmarks)
       ? book.bookmarks.slice(0, 500).map((bm) => stripUndefined({ ...bm }))
@@ -454,6 +461,19 @@ export default function App() {
         });
         setBooks(sanitized);
         isHydratingRef.current = false;
+
+        // Auto-backfill cloud PDF chunks if this device has the PDF in local IndexedDB
+        sanitized.forEach((b) => {
+          if (!b.hasCloudBinary) {
+            getPdfFromStorage(b.id, uid)
+              .then((bytes) => {
+                if (bytes && bytes.length > 0) {
+                  uploadPdfChunksToCloud(b.id, bytes, uid).catch(() => {});
+                }
+              })
+              .catch(() => {});
+          }
+        });
       },
       (err) => {
         handleFirestoreError(err, OperationType.LIST, `users/${uid}/books`);
@@ -677,6 +697,29 @@ export default function App() {
       });
     }
   };
+
+  const handleUpdateBookTotalPages = useCallback(
+    (bookId: string, discoveredTotalPages: number) => {
+      if (!discoveredTotalPages || discoveredTotalPages < 1) return;
+      setBooks((prev) =>
+        prev.map((b) => {
+          if (b.id === bookId && b.totalPages !== discoveredTotalPages) {
+            const clampedCurrent = Math.max(1, Math.min(b.currentPage || 1, discoveredTotalPages));
+            const updated: Book = {
+              ...b,
+              totalPages: discoveredTotalPages,
+              currentPage: clampedCurrent,
+              progressPercent: Math.round((clampedCurrent / discoveredTotalPages) * 100),
+            };
+            queueBookSync(updated, 800);
+            return updated;
+          }
+          return b;
+        })
+      );
+    },
+    [queueBookSync]
+  );
 
   const handleAddBookmark = (bookId: string, pageNumber: number) => {
     setBooks((prev) =>
@@ -943,6 +986,7 @@ export default function App() {
           onChangeTheme={setReadingTheme}
           onBackToDashboard={handleBackToDashboard}
           onUpdateProgress={handleUpdateProgress}
+          onUpdateBookTotalPages={handleUpdateBookTotalPages}
           onAddBookmark={handleAddBookmark}
           onAddHighlight={handleAddHighlight}
           onUpdateHighlight={handleUpdateHighlight}
