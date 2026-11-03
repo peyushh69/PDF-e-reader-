@@ -1,0 +1,81 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Per-user reading statistics, customization preferences, and profile info.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID of the user." },
+        "email": { "type": "string", "description": "User email address." },
+        "displayName": { "type": "string", "description": "User display name." },
+        "photoURL": { "type": "string", "description": "User avatar photo URL." },
+        "stats": {
+          "type": "object",
+          "description": "Reading statistics for the user."
+        },
+        "settings": {
+          "type": "object",
+          "description": "Display and reading theme preferences."
+        },
+        "updatedAt": { "type": "string", "description": "ISO timestamp of last update." }
+      },
+      "required": ["uid"]
+    },
+    "UserBook": {
+      "title": "UserBook",
+      "description": "A PDF book uploaded or imported by the user, along with reading progress, bookmarks, and highlights.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique book ID." },
+        "uid": { "type": "string", "description": "Owner user UID." },
+        "title": { "type": "string", "description": "Book title." },
+        "author": { "type": "string", "description": "Book author." },
+        "coverUrl": { "type": "string", "description": "Data URL or URL of book cover." },
+        "source": { "type": "string", "enum": ["local", "drive", "sample"] },
+        "format": { "type": "string", "enum": ["pdf"] },
+        "totalPages": { "type": "number" },
+        "currentPage": { "type": "number" },
+        "progressPercent": { "type": "number" },
+        "fileSize": { "type": "string" },
+        "addedDate": { "type": "string" },
+        "lastReadDate": { "type": "string" },
+        "lastReadTimestamp": { "type": "number" },
+        "totalTimeReadMinutes": { "type": "number" },
+        "isFinished": { "type": "boolean" },
+        "preferredReadingMode": { "type": "string", "enum": ["original-pdf", "reflow-ereader"] },
+        "stackIds": { "type": "array", "items": { "type": "string" } },
+        "bookmarks": { "type": "array", "items": { "type": "object" } },
+        "highlights": { "type": "array", "items": { "type": "object" } }
+      },
+      "required": ["id", "uid", "title", "author", "totalPages", "currentPage"]
+    },
+    "UserStack": {
+      "title": "UserStack",
+      "description": "Custom reading stack / collection created by a user.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "color": { "type": "string" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "uid", "name", "color", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Stores profile, reading stats, and display preferences for each authenticated user."
+    },
+    "/users/{userId}/books/{bookId}": {
+      "schema": { "$ref": "#/entities/UserBook" },
+      "description": "Stores books uploaded or read by the user."
+    },
+    "/users/{userId}/stacks/{stackId}": {
+      "schema": { "$ref": "#/entities/UserStack" },
+      "description": "Stores custom reading stacks created by the user."
+    }
+  }
+}

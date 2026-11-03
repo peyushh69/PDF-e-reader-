@@ -38,7 +38,7 @@ export interface SelectionRangeData {
   endOffset?: number;
 }
 
-interface KindleAnnotationToolbarProps {
+interface AnnotationToolbarProps {
   selection: SelectionRangeData | null;
   onClose: () => void;
   onHighlight?: (text: string, pageNumber: number, colorHex: string, note?: string, blockIndex?: number, startOffset?: number, endOffset?: number) => void;
@@ -48,7 +48,7 @@ interface KindleAnnotationToolbarProps {
   isDarkTheme?: boolean;
 }
 
-export const KindleAnnotationToolbar: React.FC<KindleAnnotationToolbarProps> = ({
+export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
   selection,
   onClose,
   onHighlight,
@@ -209,7 +209,7 @@ export const KindleAnnotationToolbar: React.FC<KindleAnnotationToolbarProps> = (
 
   const toolbarNode = (
     <>
-      {/* Floating Kindle Selection Action Menu via Portal to document.body */}
+      {/* Floating Selection Action Menu via Portal to document.body */}
       {!isNoteEditorOpen && (
         <div
           ref={toolbarRef}

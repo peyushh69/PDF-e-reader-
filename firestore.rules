@@ -1,0 +1,121 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: /users/{userId}
+    // Document ID: {userId} (matches request.auth.uid)
+    // Fields:
+    //   - uid: string (required, matches userId)
+    //   - email: string (optional)
+    //   - displayName: string (optional)
+    //   - photoURL: string (optional)
+    //   - stats: map (optional)
+    //   - settings: map (optional)
+    //   - updatedAt: string (optional)
+    //
+    // Collection: /users/{userId}/books/{bookId}
+    // Document ID: {bookId}
+    // Fields:
+    //   - id: string (required)
+    //   - uid: string (required, matches userId)
+    //   - title: string (required, 1..300 chars)
+    //   - author: string (required, 1..200 chars)
+    //   - coverUrl: string (optional, <= 350000 chars)
+    //   - source: string ('local' | 'drive' | 'sample')
+    //   - format: string ('pdf')
+    //   - totalPages: number (>= 1)
+    //   - currentPage: number (>= 1)
+    //   - progressPercent: number (0..100)
+    //   - fileSize: string (optional)
+    //   - addedDate: string (optional)
+    //   - lastReadDate: string (optional)
+    //   - lastReadTimestamp: number (optional)
+    //   - totalTimeReadMinutes: number (>= 0)
+    //   - isFinished: bool (optional)
+    //   - preferredReadingMode: string (optional)
+    //   - stackIds: list (optional)
+    //   - bookmarks: list (optional)
+    //   - highlights: list (optional)
+    //
+    // Collection: /users/{userId}/stacks/{stackId}
+    // Document ID: {stackId}
+    // Fields:
+    //   - id: string (required)
+    //   - uid: string (required, matches userId)
+    //   - name: string (required, 1..100 chars)
+    //   - color: string (required, 1..30 chars)
+    //   - description: string (optional, <= 300 chars)
+    //   - createdAt: string (required)
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidUserProfile(userId) {
+      let data = request.resource.data;
+      return data.uid is string
+        && data.uid == userId
+        && (!('email' in data) || (data.email is string && data.email.size() <= 320))
+        && (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 200))
+        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 2048))
+        && (!('stats' in data) || data.stats is map)
+        && (!('settings' in data) || data.settings is map)
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64));
+    }
+
+    function isValidUserBook(userId) {
+      let data = request.resource.data;
+      return data.id is string && data.id.size() >= 1 && data.id.size() <= 150
+        && data.uid is string && data.uid == userId
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 300
+        && data.author is string && data.author.size() >= 1 && data.author.size() <= 200
+        && (!('coverUrl' in data) || (data.coverUrl is string && data.coverUrl.size() <= 450000))
+        && data.totalPages is number && data.totalPages >= 1
+        && data.currentPage is number && data.currentPage >= 1
+        && (!('progressPercent' in data) || (data.progressPercent is number && data.progressPercent >= 0 && data.progressPercent <= 100))
+        && (!('totalTimeReadMinutes' in data) || (data.totalTimeReadMinutes is number && data.totalTimeReadMinutes >= 0))
+        && (!('stackIds' in data) || (data.stackIds is list && data.stackIds.size() <= 100))
+        && (!('bookmarks' in data) || (data.bookmarks is list && data.bookmarks.size() <= 500))
+        && (!('highlights' in data) || (data.highlights is list && data.highlights.size() <= 1000));
+    }
+
+    function isValidUserStack(userId) {
+      let data = request.resource.data;
+      return data.id is string && data.id.size() >= 1 && data.id.size() <= 150
+        && data.uid is string && data.uid == userId
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && data.color is string && data.color.size() >= 1 && data.color.size() <= 30
+        && (!('description' in data) || (data.description is string && data.description.size() <= 300))
+        && data.createdAt is string && data.createdAt.size() <= 64;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUserProfile(userId);
+      allow update: if isOwner(userId) && isValidUserProfile(userId) && request.resource.data.uid == resource.data.uid;
+      allow delete: if isOwner(userId);
+
+      match /books/{bookId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidUserBook(userId);
+        allow update: if isOwner(userId) && isValidUserBook(userId) && request.resource.data.uid == resource.data.uid;
+        allow delete: if isOwner(userId);
+      }
+
+      match /stacks/{stackId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidUserStack(userId);
+        allow update: if isOwner(userId) && isValidUserStack(userId) && request.resource.data.uid == resource.data.uid;
+        allow delete: if isOwner(userId);
+      }
+    }
+  }
+}

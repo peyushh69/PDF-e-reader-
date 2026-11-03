@@ -2,7 +2,11 @@ import React, { useState } from 'react';
 import { Download, X } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 
-export const PWAInstallButton: React.FC = () => {
+interface PWAInstallButtonProps {
+  compact?: boolean;
+}
+
+export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ compact = false }) => {
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
   const [showIOSGuide, setShowIOSGuide] = useState(false);
 
@@ -10,16 +14,19 @@ export const PWAInstallButton: React.FC = () => {
     return null;
   }
 
+  const btnClasses = compact
+    ? 'h-6.5 px-2.5 bg-[#E4E2DC] hover:bg-[#D5D3CC] text-[#2B2A27] border border-[#6E6C66] rounded-md text-[11px] font-medium flex items-center gap-1 transition cursor-pointer whitespace-nowrap shrink-0'
+    : 'h-8 px-3 bg-[#E4E2DC] hover:bg-[#D5D3CC] text-[#2B2A27] border border-[#6E6C66] rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0';
+
   if (isInstallable) {
     return (
       <button
         onClick={install}
-        className="h-7 sm:h-8 px-2 sm:px-3 bg-[#E4E2DC] hover:bg-[#D5D3CC] text-[#2B2A27] border border-[#6E6C66] rounded-lg text-[11px] sm:text-xs font-medium flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
+        className={btnClasses}
         title="Install Bookshelf App"
       >
-        <Download size={12} />
-        <span className="hidden xs:inline">Install App</span>
-        <span className="xs:hidden">Install</span>
+        <Download size={compact ? 11 : 12} />
+        <span>Install</span>
       </button>
     );
   }
@@ -29,12 +36,11 @@ export const PWAInstallButton: React.FC = () => {
       <>
         <button
           onClick={() => setShowIOSGuide(true)}
-          className="h-7 sm:h-8 px-2 sm:px-3 bg-[#E4E2DC] hover:bg-[#D5D3CC] text-[#2B2A27] border border-[#6E6C66] rounded-lg text-[11px] sm:text-xs font-medium flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
+          className={btnClasses}
           title="Install on iPhone / iPad"
         >
-          <Download size={12} />
-          <span className="hidden xs:inline">Install App</span>
-          <span className="xs:hidden">Install</span>
+          <Download size={compact ? 11 : 12} />
+          <span>Install</span>
         </button>
 
         {showIOSGuide && (

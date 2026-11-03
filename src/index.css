@@ -2,7 +2,7 @@
 
 @layer base {
   :root {
-    --font-serif-bookerly: 'Literata', 'Newsreader', Georgia, serif;
+    --font-serif-classic: 'Literata', 'Newsreader', Georgia, serif;
     --font-serif-newsreader: 'Newsreader', 'EB Garamond', Georgia, serif;
     --font-serif-literata: 'Literata', Georgia, serif;
     --font-serif-garamond: 'EB Garamond', Garamond, serif;
@@ -20,8 +20,8 @@
   }
 }
 
-.font-bookerly {
-  font-family: var(--font-serif-bookerly);
+.font-classic-serif {
+  font-family: var(--font-serif-classic);
 }
 
 .font-newsreader {
@@ -49,39 +49,39 @@
 }
 
 /* Soft Matte E-Ink Paper Backgrounds & Aesthetics */
-.bg-kindle-carta {
+.bg-eink-carta {
   background-color: #DBD9D3;
 }
 
-.bg-kindle-paper {
+.bg-eink-paper {
   background-color: #E2E0DA;
 }
 
-.bg-kindle-surface {
+.bg-eink-surface {
   background-color: #E6E4DE;
 }
 
-.border-kindle-subtle {
+.border-eink-subtle {
   border-color: #B8B6AF;
 }
 
-.border-kindle-medium {
+.border-eink-medium {
   border-color: #6E6C66;
 }
 
-.border-kindle-dark {
+.border-eink-dark {
   border-color: #2B2A27;
 }
 
-.text-kindle-ink {
+.text-eink-ink {
   color: #2B2A27;
 }
 
-.text-kindle-muted {
+.text-eink-muted {
   color: #575550;
 }
 
-/* E-Reader Selection Highlight - simple, muted grey background matching reference */
+/* E-Reader Selection Highlight */
 ::selection {
   background-color: #cbd5e1;
   color: #0f172a;
@@ -90,7 +90,7 @@
 .select-text,
 .reader-selectable,
 .e-reader-body,
-.kindle-reflow-content {
+.reflow-content {
   -webkit-touch-callout: none !important;
   user-select: text !important;
   -webkit-user-select: text !important;
@@ -129,7 +129,7 @@
   box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
-/* Custom Sleek Scrollbar - Ultra-thin (2px), subtle and light-toned */
+/* Custom Sleek Scrollbar */
 ::-webkit-scrollbar {
   width: 2px;
   height: 2px;
@@ -166,8 +166,8 @@
   height: 0;
 }
 
-/* Kindle Sleek Slider / Scrubber Bar - Ultra thin line and tiny, lightweight dot */
-.kindle-slider {
+/* Sleek Reader Scrubber Bar */
+.reader-slider {
   -webkit-appearance: none;
   appearance: none;
   background: rgba(255, 255, 255, 0.15);
@@ -177,12 +177,12 @@
   transition: background 0.2s ease;
 }
 
-.kindle-slider:hover {
+.reader-slider:hover {
   background: rgba(255, 255, 255, 0.25);
 }
 
 /* WebKit thumb */
-.kindle-slider::-webkit-slider-thumb {
+.reader-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 7px;
@@ -194,18 +194,18 @@
   transition: transform 0.15s ease, background-color 0.15s ease;
 }
 
-.kindle-slider::-webkit-slider-thumb:hover {
+.reader-slider::-webkit-slider-thumb:hover {
   transform: scale(1.3);
   background: #e4e4e7;
 }
 
-.kindle-slider::-webkit-slider-thumb:active {
+.reader-slider::-webkit-slider-thumb:active {
   transform: scale(1.4);
   background: #ffffff;
 }
 
 /* Firefox thumb */
-.kindle-slider::-moz-range-thumb {
+.reader-slider::-moz-range-thumb {
   width: 7px;
   height: 7px;
   border-radius: 50%;
@@ -216,7 +216,7 @@
   transition: transform 0.15s ease, background-color 0.15s ease;
 }
 
-.kindle-slider::-moz-range-thumb:hover {
+.reader-slider::-moz-range-thumb:hover {
   transform: scale(1.3);
   background: #e4e4e7;
 }
@@ -228,7 +228,7 @@
   user-select: none;
 }
 
-/* Reflow E-Reader Text Selection & Mobile Touch Callout Suppression (Blocks native Copy/Share/Web search popup) */
+/* Reflow E-Reader Text Selection & Mobile Touch Callout Suppression */
 .reflow-reader-content,
 .reflow-reader-content * {
   -webkit-touch-callout: none !important;
@@ -236,7 +236,7 @@
   -webkit-user-select: text;
 }
 
-.reflow-reader-content mark.kindle-highlight {
+.reflow-reader-content mark.reader-highlight {
   -webkit-touch-callout: none !important;
 }
 

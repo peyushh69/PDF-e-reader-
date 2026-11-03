@@ -14,6 +14,8 @@ import {
   Check,
   X,
   Trash2,
+  LogOut,
+  Upload,
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -21,6 +23,10 @@ interface DashboardViewProps {
   stats: ReadingStats;
   stacks: ReadingStack[];
   currentlyReadingBook: Book | null;
+  userEmail?: string | null;
+  userName?: string | null;
+  userPhotoUrl?: string | null;
+  onSignOut?: () => void;
   onOpenBook: (book: Book, mode?: PdfReadingMode) => void;
   onOpenUploadModal: () => void;
   onOpenDriveModal: () => void;
@@ -38,6 +44,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   stats,
   stacks,
   currentlyReadingBook,
+  userEmail,
+  userName,
+  userPhotoUrl,
+  onSignOut,
   onOpenBook,
   onOpenUploadModal,
   onOpenDriveModal,
@@ -102,46 +112,82 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       ? `${stats.totalHours.toFixed(1)} hrs`
       : `${Math.max(0, Math.round(stats.totalHours * 60))} mins`;
 
+  const displayInitial = (userName || userEmail || 'U').trim().charAt(0).toUpperCase();
+
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#DBD9D3] text-[#2B2A27] font-sans select-none antialiased">
-      {/* Top Bar */}
-      <header className="px-3 sm:px-5 lg:px-6 h-12 sm:h-13 md:h-14 bg-[#DBD9D3] border-b border-[#B8B6AF] flex items-center justify-between gap-2 sm:gap-4 shrink-0 z-20">
-        <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 shrink-0">
+      {/* Unified Responsive Top Header — Zero Duplicate Buttons */}
+      <header className="bg-[#DBD9D3] border-b border-[#B8B6AF] shrink-0 z-20 px-3.5 sm:px-6 py-2 sm:py-0 sm:h-14 flex flex-wrap sm:flex-nowrap items-center justify-between gap-y-2 gap-x-3">
+        {/* 1. Brand Logo & Wordmark */}
+        <div className="order-1 flex items-center gap-2 sm:gap-2.5 min-w-0 shrink-0">
           <img
             src="/pwa-192x192.png"
             alt="Bookshelf Logo"
-            className="w-5 h-5 sm:w-6 sm:h-6 md:w-6.5 md:h-6.5 rounded-[5px] object-cover border border-[#6E6C66] shrink-0"
+            className="w-6 h-6 rounded-[5px] object-cover border border-[#6E6C66] shrink-0"
           />
-          <BookshelfWordmark className="h-[11.5px] sm:h-[13.5px] md:h-[15px] lg:h-[16px] xl:h-[17px] w-auto" />
+          <BookshelfWordmark className="h-[13px] sm:h-[14px] md:h-[15px] lg:h-[16px] w-auto" />
         </div>
 
-        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-          <PWAInstallButton />
+        {/* 2. Primary Action Toolbar (Rendered once; wraps to clean full-width row on mobile, inline on tablet/PC) */}
+        <div className="order-3 sm:order-2 w-full sm:w-auto sm:ml-auto pt-1.5 sm:pt-0 border-t sm:border-t-0 border-[#C5C3BB] flex items-center justify-between sm:justify-end gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <PWAInstallButton />
 
-          {onOpenThemeModal && (
+            {onOpenThemeModal && (
+              <button
+                onClick={onOpenThemeModal}
+                className="h-7.5 sm:h-8 px-2.5 sm:px-3 bg-[#E4E2DC] hover:bg-[#D5D3CC] text-[#2B2A27] border border-[#6E6C66] rounded-lg text-[11px] sm:text-xs font-medium transition cursor-pointer whitespace-nowrap"
+              >
+                Display
+              </button>
+            )}
+
             <button
-              onClick={onOpenThemeModal}
-              className="h-7 sm:h-8 px-2 sm:px-3 bg-[#E4E2DC] hover:bg-[#D5D3CC] text-[#2B2A27] border border-[#6E6C66] rounded-lg text-[11px] sm:text-xs font-medium transition cursor-pointer whitespace-nowrap shrink-0"
+              onClick={onOpenDriveModal}
+              className="h-7.5 sm:h-8 px-2.5 sm:px-3 bg-[#E4E2DC] hover:bg-[#D5D3CC] text-[#2B2A27] border border-[#6E6C66] rounded-lg text-[11px] sm:text-xs font-medium transition cursor-pointer whitespace-nowrap"
             >
-              Display
+              Google Drive
             </button>
-          )}
-
-          <button
-            onClick={onOpenDriveModal}
-            className="h-7 sm:h-8 px-2 sm:px-3 bg-[#E4E2DC] hover:bg-[#D5D3CC] text-[#2B2A27] border border-[#6E6C66] rounded-lg text-[11px] sm:text-xs font-medium transition cursor-pointer whitespace-nowrap shrink-0"
-          >
-            <span className="sm:hidden">Drive</span>
-            <span className="hidden sm:inline">Google Drive</span>
-          </button>
+          </div>
 
           <button
             onClick={onOpenUploadModal}
-            className="h-7 sm:h-8 px-2.5 sm:px-3.5 bg-[#383633] hover:bg-[#2B2A27] text-[#EAE8E2] border border-[#2B2A27] rounded-lg text-[11px] sm:text-xs font-medium transition cursor-pointer whitespace-nowrap shrink-0"
+            className="h-7.5 sm:h-8 px-3 sm:px-3.5 bg-[#383633] hover:bg-[#2B2A27] text-[#EAE8E2] border border-[#2B2A27] rounded-lg text-[11px] sm:text-xs font-medium flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
           >
-            Upload PDF
+            <Upload size={12} className="shrink-0" />
+            <span>Upload PDF</span>
           </button>
         </div>
+
+        {/* 3. User Account & Sign Out (Rendered once) */}
+        {onSignOut && (
+          <div className="order-2 sm:order-3 flex items-center gap-1.5 sm:pl-2 sm:border-l sm:border-[#B8B6AF] shrink-0">
+            {userPhotoUrl ? (
+              <img
+                src={userPhotoUrl}
+                alt={userName || 'User'}
+                referrerPolicy="no-referrer"
+                className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-lg object-cover border border-[#6E6C66] shrink-0"
+                title={userEmail || userName || 'Signed in'}
+              />
+            ) : (
+              <div
+                className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-lg bg-[#E4E2DC] border border-[#6E6C66] text-[#2B2A27] text-xs font-semibold flex items-center justify-center shrink-0"
+                title={userEmail || userName || 'Signed in'}
+              >
+                {displayInitial}
+              </div>
+            )}
+            <button
+              onClick={onSignOut}
+              className="h-7 sm:h-8 px-2 sm:px-2.5 bg-[#E4E2DC] hover:bg-[#D5D3CC] text-[#2B2A27] border border-[#6E6C66] rounded-lg text-[11px] font-medium flex items-center justify-center gap-1 transition cursor-pointer shrink-0"
+              title={`Sign out (${userEmail || userName || ''})`}
+            >
+              <LogOut size={12} />
+              <span className="hidden md:inline">Sign out</span>
+            </button>
+          </div>
+        )}
       </header>
 
       {/* Main Content */}
@@ -200,19 +246,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
               </div>
 
-              {/* Action Buttons */}
-              <div className="flex sm:flex-col items-center sm:items-end gap-1.5 shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-[#C5C3BB]">
+              {/* Single Primary Action Button */}
+              <div className="flex items-center shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-[#C5C3BB]">
                 <button
-                  onClick={() => onOpenBook(activeBook, 'reflow-ereader')}
-                  className="h-8 px-4 bg-[#383633] hover:bg-[#2B2A27] text-[#EAE8E2] border border-[#2B2A27] text-xs font-medium rounded-lg flex items-center justify-center transition cursor-pointer flex-1 sm:flex-initial whitespace-nowrap"
+                  onClick={() => onOpenBook(activeBook)}
+                  className="h-8 px-4 bg-[#383633] hover:bg-[#2B2A27] text-[#EAE8E2] border border-[#2B2A27] text-xs font-medium rounded-lg flex items-center justify-center transition cursor-pointer w-full sm:w-auto whitespace-nowrap"
                 >
                   Continue Reading
-                </button>
-                <button
-                  onClick={() => onOpenBook(activeBook, 'original-pdf')}
-                  className="h-7 px-3 bg-[#E6E4DE] hover:bg-[#D5D3CC] text-[#2B2A27] border border-[#6E6C66] text-[11px] font-medium rounded-lg flex items-center justify-center transition cursor-pointer flex-1 sm:flex-initial whitespace-nowrap"
-                >
-                  Original PDF
                 </button>
               </div>
             </div>
@@ -364,16 +404,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           {books.length === 0 ? (
-            <div className="py-10 text-center space-y-3">
-              <p className="text-xs text-[#575550]">
-                No books in your library yet. Upload a PDF document to begin reading.
+            <div className="py-10 text-center space-y-1.5">
+              <p className="text-xs font-medium text-[#2B2A27]">
+                Your library is currently empty.
               </p>
-              <button
-                onClick={onOpenUploadModal}
-                className="h-8 px-4 bg-[#383633] hover:bg-[#2B2A27] text-[#EAE8E2] border border-[#2B2A27] rounded-lg text-xs font-medium cursor-pointer transition"
-              >
-                Upload PDF
-              </button>
+              <p className="text-[11px] text-[#575550]">
+                Select Upload PDF or Google Drive in the top bar to add books to your bookshelf.
+              </p>
             </div>
           ) : filteredBooks.length === 0 ? (
             <div className="py-8 text-center space-y-2">
@@ -434,7 +471,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <div className="flex items-center justify-between pt-1.5 border-t border-[#C5C3BB] text-[10px]">
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => onOpenBook(book, 'reflow-ereader')}
+                            onClick={() => onOpenBook(book)}
                             className="font-medium text-[#2B2A27] hover:underline cursor-pointer"
                           >
                             Read

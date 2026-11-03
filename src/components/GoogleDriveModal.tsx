@@ -31,7 +31,7 @@ export const GoogleDriveModal: React.FC<GoogleDriveModalProps> = ({
     setError(null);
 
     try {
-      const bookId = `drive-pdf-${Date.now()}`;
+      const bookId = `drive-pdf-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       const rawBuffer = await file.arrayBuffer();
       const uint8 = new Uint8Array(rawBuffer);
       const blobUrl = await savePdfToStorage(bookId, uint8);
@@ -46,7 +46,10 @@ export const GoogleDriveModal: React.FC<GoogleDriveModalProps> = ({
 
         try {
           const page1 = await pdfDoc.getPage(1);
-          const viewport = page1.getViewport({ scale: 0.55 });
+          const baseViewport = page1.getViewport({ scale: 1 });
+          const targetWidth = 280;
+          const scale = Math.min(0.55, targetWidth / Math.max(1, baseViewport.width));
+          const viewport = page1.getViewport({ scale });
           const canvas = document.createElement('canvas');
           canvas.width = viewport.width;
           canvas.height = viewport.height;
@@ -57,7 +60,10 @@ export const GoogleDriveModal: React.FC<GoogleDriveModalProps> = ({
               viewport,
               canvas,
             } as any).promise;
-            coverThumbnail = canvas.toDataURL('image/jpeg', 0.85);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.72);
+            if (dataUrl.length < 300000) {
+              coverThumbnail = dataUrl;
+            }
           }
         } catch {
           // Fallback cover below

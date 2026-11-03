@@ -24,8 +24,8 @@ import {
 } from 'lucide-react';
 import { pdfjsLib } from '../utils/pdfSetup';
 import { resolveBookPdfBytes } from '../utils/pdfStorage';
-import { extractPageForKindleReflow } from '../utils/pdfReflowEngine';
-import { KindleAnnotationToolbar, SelectionRangeData } from './KindleAnnotationToolbar';
+import { extractPageForReflow } from '../utils/pdfReflowEngine';
+import { AnnotationToolbar, SelectionRangeData } from './AnnotationToolbar';
 import { NotesAndHighlightsModal } from './NotesAndHighlightsModal';
 
 interface ReadingInterfaceProps {
@@ -38,6 +38,7 @@ interface ReadingInterfaceProps {
   onAddHighlight: (bookId: string, highlight: Highlight) => void;
   onUpdateHighlight?: (bookId: string, highlight: Highlight) => void;
   onDeleteHighlight?: (bookId: string, highlightId: string) => void;
+  onChangeReadingMode?: (bookId: string, mode: PdfReadingMode) => void;
   eyeProtection?: EyeProtectionSettings;
   onChangeEyeProtection?: (settings: EyeProtectionSettings) => void;
 }
@@ -127,6 +128,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
   onAddHighlight,
   onUpdateHighlight,
   onDeleteHighlight,
+  onChangeReadingMode,
   eyeProtection,
   onChangeEyeProtection,
 }) => {
@@ -135,6 +137,11 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
   const [readingMode, setReadingMode] = useState<PdfReadingMode>(
     book.preferredReadingMode || 'reflow-ereader'
   );
+
+  const handleSelectReadingMode = (mode: PdfReadingMode) => {
+    setReadingMode(mode);
+    onChangeReadingMode?.(book.id, mode);
+  };
 
   const [layoutMode, setLayoutMode] = useState<'single' | 'dual'>('single');
   const [pdfZoomMode, setPdfZoomMode] = useState<'fit-width' | 'fit-page' | 'custom' | '100%'>('fit-width');
@@ -156,7 +163,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
   };
 
   const [fontSize, setFontSize] = useState<number>(17);
-  const [fontFamily, setFontFamily] = useState<FontOption>('bookerly');
+  const [fontFamily, setFontFamily] = useState<FontOption>('classic-serif');
   const [lineHeight, setLineHeight] = useState<number>(1.65);
   const [margins, setMargins] = useState<'compact' | 'normal' | 'spacious'>('normal');
   const [activeMenu, setActiveMenu] = useState<'theme' | 'toc' | null>(null);
@@ -286,18 +293,22 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
     onUpdateProgress(book.id, currentPage, 0);
   }, [currentPage, book.id]);
 
-  // Active reading time tracker
+  // Active reading time tracker (coalesced every 15s when tab is visible)
   const lastActiveTimestampRef = useRef<number>(Date.now());
   useEffect(() => {
     lastActiveTimestampRef.current = Date.now();
     const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        lastActiveTimestampRef.current = Date.now();
+        return;
+      }
       const now = Date.now();
       const elapsedSec = Math.floor((now - lastActiveTimestampRef.current) / 1000);
       lastActiveTimestampRef.current = now;
       if (elapsedSec > 0 && elapsedSec <= 60) {
         onUpdateProgress(book.id, currentPage, elapsedSec);
       }
-    }, 5000);
+    }, 15000);
 
     return () => {
       clearInterval(interval);
@@ -345,7 +356,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
         const page = await pdfDoc.getPage(pageNum);
         if (isCancelled) return;
 
-        const formattedPageText = await extractPageForKindleReflow(
+        const formattedPageText = await extractPageForReflow(
           page,
           pageNum,
           extractPageAsImage
@@ -1232,9 +1243,9 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
     };
   }, [book.highlights, currentPage, readingMode]);
 
-  const kindlePercent = totalPages > 0 ? Math.round((currentPage / totalPages) * 100) : 0;
+  const progressPercent = totalPages > 0 ? Math.round((currentPage / totalPages) * 100) : 0;
 
-  const renderKindleReflowContent = () => {
+  const renderReflowContent = () => {
     if (currentContent.startsWith('[PAGE_IMAGE:') || currentContent.startsWith('[IMAGE:')) {
       const imgSrc = currentContent.replace(/^\[(PAGE_)?IMAGE:/, '').replace(/\]$/, '').trim();
       return (
@@ -1392,7 +1403,8 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
                 className={`${nextIsIndented ? 'mb-2' : 'mb-3.5'} indent-6 sm:indent-8 text-justify leading-relaxed`}
                 style={{
                   color: currentTheme.text,
-                  hyphens: 'auto',
+                  hyphens: 'none',
+                  WebkitHyphens: 'none',
                   lineHeight,
                 }}
               >
@@ -1408,7 +1420,8 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
               className="mb-3.5 text-justify leading-relaxed"
               style={{
                 color: currentTheme.text,
-                hyphens: 'auto',
+                hyphens: 'none',
+                WebkitHyphens: 'none',
                 lineHeight,
               }}
             >
@@ -1423,8 +1436,8 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
   const fontClass =
     fontFamily === 'literata'
       ? 'font-literata'
-      : fontFamily === 'bookerly'
-      ? 'font-bookerly'
+      : fontFamily === 'classic-serif'
+      ? 'font-classic-serif'
       : fontFamily === 'newsreader'
       ? 'font-newsreader'
       : fontFamily === 'garamond'
@@ -1475,7 +1488,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
         {/* Center: Mode Switcher */}
         <div className="flex items-center bg-black/10 p-0.5 rounded-lg text-xs shrink-0 border border-current/20">
           <button
-            onClick={() => setReadingMode('reflow-ereader')}
+            onClick={() => handleSelectReadingMode('reflow-ereader')}
             className={`px-2.5 sm:px-3 py-1 rounded-md text-[11px] font-medium transition cursor-pointer whitespace-nowrap ${
               readingMode === 'reflow-ereader'
                 ? 'bg-[#383633] text-[#EAE8E2]'
@@ -1486,7 +1499,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
           </button>
 
           <button
-            onClick={() => setReadingMode('original-pdf')}
+            onClick={() => handleSelectReadingMode('original-pdf')}
             className={`px-2.5 sm:px-3 py-1 rounded-md text-[11px] font-medium transition cursor-pointer whitespace-nowrap ${
               readingMode === 'original-pdf'
                 ? 'bg-[#383633] text-[#EAE8E2]'
@@ -1569,7 +1582,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
                 [
                   { id: 'dark', label: 'Dark' },
                   { id: 'light', label: 'Daylight' },
-                  { id: 'warm-sepia', label: 'Paperwhite' },
+                  { id: 'warm-sepia', label: 'Warm Cream' },
                   { id: 'sepia', label: 'Sepia' },
                   { id: 'amber-glow', label: 'Amber' },
                   { id: 'emerald-paper', label: 'Sage' },
@@ -1644,7 +1657,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
                   {(
                     [
                       { id: 'literata', label: 'Literata' },
-                      { id: 'bookerly', label: 'Bookerly' },
+                      { id: 'classic-serif', label: 'Classic Serif' },
                       { id: 'newsreader', label: 'Newsreader' },
                       { id: 'garamond', label: 'Garamond' },
                       { id: 'lora', label: 'Lora' },
@@ -1774,28 +1787,6 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
         onTouchEnd={handleTouchEnd}
         className="relative flex-1 w-full h-full flex items-center justify-center overflow-hidden touch-pan-y"
       >
-        <button
-          onClick={handlePrevPage}
-          disabled={currentPage <= 1}
-          className={`hidden lg:flex absolute left-4 z-30 w-9 h-9 rounded-full bg-white/90 dark:bg-stone-900/90 shadow border border-stone-200 dark:border-stone-800 items-center justify-center transition cursor-pointer ${
-            currentPage <= 1 ? 'opacity-0 pointer-events-none' : 'opacity-60 hover:opacity-100'
-          }`}
-          title="Previous Page"
-        >
-          <ChevronLeft size={16} className="text-stone-800 dark:text-stone-200" />
-        </button>
-
-        <button
-          onClick={handleNextPage}
-          disabled={currentPage >= totalPages}
-          className={`hidden lg:flex absolute right-4 z-30 w-9 h-9 rounded-full bg-white/90 dark:bg-stone-900/90 shadow border border-stone-200 dark:border-stone-800 items-center justify-center transition cursor-pointer ${
-            currentPage >= totalPages ? 'opacity-0 pointer-events-none' : 'opacity-60 hover:opacity-100'
-          }`}
-          title="Next Page"
-        >
-          <ChevronRight size={16} className="text-stone-800 dark:text-stone-200" />
-        </button>
-
         {readingMode === 'original-pdf' && isPdf ? (
           <div
             onWheel={handlePdfWheel}
@@ -1874,16 +1865,8 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
               )}
             </div>
 
-            {/* PDF Viewer Control Bar */}
+            {/* PDF Zoom & Layout Control Bar (No duplicate page turn buttons) */}
             <div className="fixed bottom-11 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 px-3 py-1.5 bg-stone-900/95 text-white rounded-md shadow-lg border border-white/15 text-xs font-sans">
-              <button
-                onClick={handlePrevPage}
-                disabled={currentPage <= 1}
-                className="p-1 hover:bg-white/15 disabled:opacity-30 rounded transition cursor-pointer"
-              >
-                <ChevronLeft size={14} />
-              </button>
-
               <form onSubmit={handlePageJumpSubmit} className="flex items-center gap-1 text-[11px] font-mono tabular-nums">
                 <input
                   type="text"
@@ -1894,14 +1877,6 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
                 />
                 <span className="opacity-60">/ {totalPages}</span>
               </form>
-
-              <button
-                onClick={handleNextPage}
-                disabled={currentPage >= totalPages}
-                className="p-1 hover:bg-white/15 disabled:opacity-30 rounded transition cursor-pointer"
-              >
-                <ChevronRight size={14} />
-              </button>
 
               <div className="w-px h-3.5 bg-white/20 mx-0.5" />
 
@@ -2011,7 +1986,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
                     color: currentTheme.text,
                   }}
                 >
-                  {renderKindleReflowContent()}
+                  {renderReflowContent()}
                 </motion.div>
               </AnimatePresence>
             </div>
@@ -2047,7 +2022,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
             max={totalPages}
             value={currentPage}
             onChange={(e) => setCurrentPage(parseInt(e.target.value, 10))}
-            className="kindle-slider w-20 sm:w-32 cursor-pointer"
+            className="reader-slider w-20 sm:w-32 cursor-pointer"
           />
 
           <button
@@ -2060,12 +2035,12 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
         </div>
 
         <div className="font-mono text-[11px] font-semibold tabular-nums">
-          {kindlePercent}%
+          {progressPercent}%
         </div>
       </footer>
 
       {activeSelection && (
-        <KindleAnnotationToolbar
+        <AnnotationToolbar
           selection={activeSelection}
           onHighlight={handleApplyHighlight}
           onApplyHighlight={handleApplyHighlight}

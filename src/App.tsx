@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   Book,
   ReadingStats,
@@ -17,12 +17,23 @@ import { ReadingInterface } from './components/ReadingInterface';
 import { UploadModal } from './components/UploadModal';
 import { GoogleDriveModal } from './components/GoogleDriveModal';
 import { ThemeAndEyeProtectionModal } from './components/ThemeAndEyeProtectionModal';
+import { LoginView } from './components/LoginView';
+import { BookshelfWordmark } from './components/BookshelfWordmark';
 import { deletePdfFromStorage, createBookCoverDataUrl } from './utils/pdfStorage';
-
-const STORAGE_KEY_BOOKS = 'ereader_pdf_books_v7';
-const STORAGE_KEY_STACKS = 'ereader_pdf_stacks_v7';
-const STORAGE_KEY_STATS = 'ereader_stats_v8';
-const STORAGE_KEY_SETTINGS = 'ereader_settings_v7';
+import {
+  auth,
+  db,
+  onAuthStateChanged,
+  signOut,
+  doc,
+  setDoc,
+  deleteDoc,
+  collection,
+  onSnapshot,
+  handleFirestoreError,
+  OperationType,
+  User,
+} from './firebase';
 
 interface PersistedCustomization {
   hardwareTheme: DeviceHardwareTheme;
@@ -50,6 +61,29 @@ const LEGACY_DEFAULT_STACK_IDS = new Set([
   'stack-research',
   'stack-toread',
 ]);
+
+function getBooksStorageKey(uid: string) {
+  return `ereader_pdf_books_v8_${uid}`;
+}
+function getStacksStorageKey(uid: string) {
+  return `ereader_pdf_stacks_v8_${uid}`;
+}
+function getStatsStorageKey(uid: string) {
+  return `ereader_stats_v8_${uid}`;
+}
+function getSettingsStorageKey(uid: string) {
+  return `ereader_settings_v8_${uid}`;
+}
+
+function stripUndefined<T extends Record<string, any>>(obj: T): T {
+  const result: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      result[key] = value;
+    }
+  }
+  return result as T;
+}
 
 function sanitizeBooksList(rawBooks: any[]): Book[] {
   return rawBooks
@@ -90,148 +124,310 @@ function sanitizeBooksList(rawBooks: any[]): Book[] {
     });
 }
 
+function prepareBookForFirestore(uid: string, book: Book): Record<string, any> {
+  const safeCover =
+    book.coverUrl && book.coverUrl.length <= 420000
+      ? book.coverUrl
+      : createBookCoverDataUrl({
+          title: book.title || 'Document',
+          author: book.author || 'PDF Document',
+          subtitle: book.source === 'drive' ? 'Cloud Document' : 'PDF Document',
+        });
+
+  return stripUndefined({
+    id: String(book.id).slice(0, 150),
+    uid,
+    title: String(book.title || 'Untitled Document').slice(0, 300),
+    author: String(book.author || 'Uploaded Document').slice(0, 200),
+    coverUrl: safeCover,
+    source: book.source || 'local',
+    format: 'pdf',
+    totalPages: Math.max(1, Number(book.totalPages) || 1),
+    currentPage: Math.max(1, Number(book.currentPage) || 1),
+    progressPercent: Math.min(100, Math.max(0, Number(book.progressPercent) || 0)),
+    fileSize: book.fileSize ? String(book.fileSize) : undefined,
+    addedDate: book.addedDate || new Date().toISOString().split('T')[0],
+    lastReadDate: book.lastReadDate,
+    lastReadTimestamp: book.lastReadTimestamp,
+    totalTimeReadMinutes: Math.max(0, Number(book.totalTimeReadMinutes) || 0),
+    isFinished: Boolean(book.isFinished),
+    preferredReadingMode: book.preferredReadingMode || 'reflow-ereader',
+    stackIds: Array.isArray(book.stackIds) ? book.stackIds.slice(0, 100) : [],
+    bookmarks: Array.isArray(book.bookmarks)
+      ? book.bookmarks.slice(0, 500).map((bm) => stripUndefined({ ...bm }))
+      : [],
+    highlights: Array.isArray(book.highlights)
+      ? book.highlights.slice(0, 1000).map((hl) => stripUndefined({ ...hl }))
+      : [],
+  });
+}
+
 export default function App() {
-  const [stacks, setStacks] = useState<ReadingStack[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_STACKS);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
-        }
-      }
-    } catch (e) {
-      console.warn('Stacks storage read error:', e);
-    }
-    return DEFAULT_STACKS;
-  });
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
 
-  const [books, setBooks] = useState<Book[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_BOOKS);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const sanitized = sanitizeBooksList(parsed);
-          if (sanitized.length > 0) {
-            return sanitized;
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('Books storage read error:', e);
-    }
-    return INITIAL_BOOKS;
-  });
+  const [stacks, setStacks] = useState<ReadingStack[]>(DEFAULT_STACKS);
+  const [books, setBooks] = useState<Book[]>(INITIAL_BOOKS);
+  const [stats, setStats] = useState<ReadingStats>(INITIAL_STATS);
 
-  const [stats, setStats] = useState<ReadingStats>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_STATS);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && typeof parsed.totalHours === 'number') {
-          return parsed;
-        }
-      }
-    } catch (e) {
-      console.warn('Stats storage read error:', e);
-    }
-    return INITIAL_STATS;
-  });
-
-  const [hardwareTheme, setHardwareTheme] = useState<DeviceHardwareTheme>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_SETTINGS);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed?.hardwareTheme) return parsed.hardwareTheme;
-      }
-    } catch (e) {}
-    return DEFAULT_CUSTOMIZATION.hardwareTheme;
-  });
-
-  const [environmentBg, setEnvironmentBg] = useState<EnvironmentBackground>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_SETTINGS);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed?.environmentBg) return parsed.environmentBg;
-      }
-    } catch (e) {}
-    return DEFAULT_CUSTOMIZATION.environmentBg;
-  });
-
-  const [eyeProtection, setEyeProtection] = useState<EyeProtectionSettings>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_SETTINGS);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed?.eyeProtection) return parsed.eyeProtection;
-      }
-    } catch (e) {}
-    return DEFAULT_CUSTOMIZATION.eyeProtection;
-  });
-
-  const [readingTheme, setReadingTheme] = useState<ThemeMode>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_SETTINGS);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed?.readingTheme) return parsed.readingTheme;
-      }
-    } catch (e) {}
-    return DEFAULT_CUSTOMIZATION.readingTheme;
-  });
+  const [hardwareTheme, setHardwareTheme] = useState<DeviceHardwareTheme>(
+    DEFAULT_CUSTOMIZATION.hardwareTheme
+  );
+  const [environmentBg, setEnvironmentBg] = useState<EnvironmentBackground>(
+    DEFAULT_CUSTOMIZATION.environmentBg
+  );
+  const [eyeProtection, setEyeProtection] = useState<EyeProtectionSettings>(
+    DEFAULT_CUSTOMIZATION.eyeProtection
+  );
+  const [readingTheme, setReadingTheme] = useState<ThemeMode>(
+    DEFAULT_CUSTOMIZATION.readingTheme
+  );
 
   const [currentView, setCurrentView] = useState<'dashboard' | 'reading'>('dashboard');
-  const [activeBookId, setActiveBookId] = useState<string>(INITIAL_BOOKS[0]?.id || '');
+  const [activeBookId, setActiveBookId] = useState<string>('');
 
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isDriveOpen, setIsDriveOpen] = useState(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
 
-  const hasHydratedFromServer = useRef(false);
+  const isHydratingRef = useRef(false);
+  const pendingBookSyncTimersRef = useRef<Map<string, { book: Book; timer: any }>>(new Map());
 
-  // Hydrate from backend server on mount if available
+  // 1. Listen to Firebase Authentication state
   useEffect(() => {
-    let mounted = true;
-    fetch('/api/state')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!mounted || !data?.state) {
-          hasHydratedFromServer.current = true;
-          return;
-        }
-        const srv = data.state;
-        if (Array.isArray(srv.books) && srv.books.length > 0 && !localStorage.getItem(STORAGE_KEY_BOOKS)) {
-          setBooks(sanitizeBooksList(srv.books));
-        }
-        if (Array.isArray(srv.stacks) && srv.stacks.length > 0 && !localStorage.getItem(STORAGE_KEY_STACKS)) {
-          const cleanStacks = srv.stacks.filter(
-            (s: any) => s && s.id && !LEGACY_DEFAULT_STACK_IDS.has(String(s.id))
-          );
-          setStacks(cleanStacks);
-        }
-        if (srv.stats && !localStorage.getItem(STORAGE_KEY_STATS)) {
-          setStats(srv.stats);
-        }
-        hasHydratedFromServer.current = true;
-      })
-      .catch(() => {
-        hasHydratedFromServer.current = true;
-      });
-    return () => {
-      mounted = false;
-    };
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser);
+      setAuthLoading(false);
+      if (!firebaseUser) {
+        setCurrentView('dashboard');
+        setActiveBookId('');
+        setBooks([]);
+        setStacks([]);
+        setStats(INITIAL_STATS);
+      }
+    });
+    return () => unsubscribe();
   }, []);
 
-  // Save to localStorage and sync to backend server
+  // Immediate Firestore write for a book
+  const syncBookToCloud = useCallback(
+    async (book: Book) => {
+      if (!user) return;
+      const pending = pendingBookSyncTimersRef.current.get(book.id);
+      if (pending) {
+        clearTimeout(pending.timer);
+        pendingBookSyncTimersRef.current.delete(book.id);
+      }
+      const path = `users/${user.uid}/books/${book.id}`;
+      try {
+        await setDoc(doc(db, 'users', user.uid, 'books', book.id), prepareBookForFirestore(user.uid, book));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, path);
+      }
+    },
+    [user]
+  );
+
+  // Coalesced/debounced Firestore write for frequent page-turn & reading-time updates
+  const queueBookSync = useCallback(
+    (book: Book, delayMs = 1200) => {
+      if (!user) return;
+      const existing = pendingBookSyncTimersRef.current.get(book.id);
+      if (existing) {
+        clearTimeout(existing.timer);
+      }
+      const timer = setTimeout(() => {
+        pendingBookSyncTimersRef.current.delete(book.id);
+        syncBookToCloud(book);
+      }, delayMs);
+      pendingBookSyncTimersRef.current.set(book.id, { book, timer });
+    },
+    [user, syncBookToCloud]
+  );
+
+  // Flush any queued book syncs immediately
+  const flushPendingBookSyncs = useCallback(() => {
+    pendingBookSyncTimersRef.current.forEach(({ book, timer }) => {
+      clearTimeout(timer);
+      syncBookToCloud(book);
+    });
+    pendingBookSyncTimersRef.current.clear();
+  }, [syncBookToCloud]);
+
+  // Helper to persist user profile (stats & settings) to Firestore
+  const syncProfileToCloud = useCallback(
+    async (nextStats: ReadingStats, nextSettings: PersistedCustomization) => {
+      if (!user) return;
+      const path = `users/${user.uid}`;
+      try {
+        await setDoc(
+          doc(db, 'users', user.uid),
+          stripUndefined({
+            uid: user.uid,
+            email: user.email || undefined,
+            displayName: user.displayName || undefined,
+            photoURL: user.photoURL || undefined,
+            stats: stripUndefined({ ...nextStats }),
+            settings: stripUndefined({
+              hardwareTheme: nextSettings.hardwareTheme,
+              environmentBg: nextSettings.environmentBg,
+              eyeProtection: stripUndefined({ ...nextSettings.eyeProtection }),
+              readingTheme: nextSettings.readingTheme,
+            }),
+            updatedAt: new Date().toISOString(),
+          }),
+          { merge: true }
+        );
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, path);
+      }
+    },
+    [user]
+  );
+
+  // 2. Load per-user local cache & subscribe to Firestore when user logs in
   useEffect(() => {
+    if (!user) return;
+    const uid = user.uid;
+    isHydratingRef.current = true;
+
+    // Load immediate local cache for this specific user
+    try {
+      const savedBooks = localStorage.getItem(getBooksStorageKey(uid));
+      if (savedBooks) {
+        const parsed = JSON.parse(savedBooks);
+        if (Array.isArray(parsed)) {
+          setBooks(sanitizeBooksList(parsed));
+        }
+      } else {
+        setBooks([]);
+      }
+
+      const savedStacks = localStorage.getItem(getStacksStorageKey(uid));
+      if (savedStacks) {
+        const parsed = JSON.parse(savedStacks);
+        if (Array.isArray(parsed)) {
+          setStacks(parsed);
+        }
+      } else {
+        setStacks([]);
+      }
+
+      const savedStats = localStorage.getItem(getStatsStorageKey(uid));
+      if (savedStats) {
+        const parsed = JSON.parse(savedStats);
+        if (parsed && typeof parsed.totalHours === 'number') {
+          setStats(parsed);
+        }
+      } else {
+        setStats(INITIAL_STATS);
+      }
+
+      const savedSettings = localStorage.getItem(getSettingsStorageKey(uid));
+      if (savedSettings) {
+        const parsed = JSON.parse(savedSettings);
+        if (parsed?.hardwareTheme) setHardwareTheme(parsed.hardwareTheme);
+        if (parsed?.environmentBg) setEnvironmentBg(parsed.environmentBg);
+        if (parsed?.eyeProtection) setEyeProtection(parsed.eyeProtection);
+        if (parsed?.readingTheme) setReadingTheme(parsed.readingTheme);
+      }
+    } catch (e) {
+      console.warn('Local user cache read notice:', e);
+    }
+
+    // Subscribe to Firestore /users/{uid}
+    const userDocRef = doc(db, 'users', uid);
+    const unsubProfile = onSnapshot(
+      userDocRef,
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data.stats && typeof data.stats.totalHours === 'number') {
+            setStats(data.stats as ReadingStats);
+          }
+          if (data.settings) {
+            if (data.settings.hardwareTheme) setHardwareTheme(data.settings.hardwareTheme);
+            if (data.settings.environmentBg) setEnvironmentBg(data.settings.environmentBg);
+            if (data.settings.eyeProtection) setEyeProtection(data.settings.eyeProtection);
+            if (data.settings.readingTheme) setReadingTheme(data.settings.readingTheme);
+          }
+        } else {
+          // Initialize user profile doc on first login
+          setDoc(
+            userDocRef,
+            stripUndefined({
+              uid,
+              email: user.email || undefined,
+              displayName: user.displayName || undefined,
+              photoURL: user.photoURL || undefined,
+              stats: INITIAL_STATS,
+              settings: DEFAULT_CUSTOMIZATION,
+              updatedAt: new Date().toISOString(),
+            }),
+            { merge: true }
+          ).catch((err) => handleFirestoreError(err, OperationType.CREATE, `users/${uid}`));
+        }
+      },
+      (err) => handleFirestoreError(err, OperationType.GET, `users/${uid}`)
+    );
+
+    // Subscribe to Firestore /users/{uid}/books
+    const booksColRef = collection(db, 'users', uid, 'books');
+    const unsubBooks = onSnapshot(
+      booksColRef,
+      (snap) => {
+        const cloudBooks: Book[] = [];
+        snap.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (data && data.id && data.title) {
+            cloudBooks.push(data as Book);
+          }
+        });
+        const sanitized = sanitizeBooksList(cloudBooks).sort((a, b) => {
+          const timeA = a.lastReadTimestamp || (a.lastReadDate ? new Date(a.lastReadDate).getTime() : 0);
+          const timeB = b.lastReadTimestamp || (b.lastReadDate ? new Date(b.lastReadDate).getTime() : 0);
+          return timeB - timeA;
+        });
+        setBooks(sanitized);
+        isHydratingRef.current = false;
+      },
+      (err) => {
+        handleFirestoreError(err, OperationType.LIST, `users/${uid}/books`);
+        isHydratingRef.current = false;
+      }
+    );
+
+    // Subscribe to Firestore /users/{uid}/stacks
+    const stacksColRef = collection(db, 'users', uid, 'stacks');
+    const unsubStacks = onSnapshot(
+      stacksColRef,
+      (snap) => {
+        const cloudStacks: ReadingStack[] = [];
+        snap.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (data && data.id && data.name) {
+            cloudStacks.push(data as ReadingStack);
+          }
+        });
+        setStacks(cloudStacks);
+      },
+      (err) => handleFirestoreError(err, OperationType.LIST, `users/${uid}/stacks`)
+    );
+
+    return () => {
+      unsubProfile();
+      unsubBooks();
+      unsubStacks();
+    };
+  }, [user]);
+
+  // Save per-user localStorage cache
+  useEffect(() => {
+    if (!user) return;
     try {
       const serializableBooks = books.map((b) => ({
         ...b,
         pdfFile: undefined,
-        // Avoid storing transient blob URLs or huge base64 PDFs for sample books in localStorage
         pdfDataUrl:
           b.pdfDataUrl && b.pdfDataUrl.startsWith('blob:')
             ? undefined
@@ -239,57 +435,77 @@ export default function App() {
             ? undefined
             : b.pdfDataUrl,
       }));
-      localStorage.setItem(STORAGE_KEY_BOOKS, JSON.stringify(serializableBooks));
-    } catch (e) {
-      console.warn('Books localStorage save notice:', e);
-    }
-  }, [books]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY_STACKS, JSON.stringify(stacks));
+      localStorage.setItem(getBooksStorageKey(user.uid), JSON.stringify(serializableBooks));
     } catch (e) {}
-  }, [stacks]);
+  }, [books, user]);
 
   useEffect(() => {
+    if (!user) return;
     try {
-      localStorage.setItem(STORAGE_KEY_STATS, JSON.stringify(stats));
+      localStorage.setItem(getStacksStorageKey(user.uid), JSON.stringify(stacks));
     } catch (e) {}
-  }, [stats]);
+  }, [stacks, user]);
 
   useEffect(() => {
+    if (!user) return;
     try {
+      localStorage.setItem(getStatsStorageKey(user.uid), JSON.stringify(stats));
+    } catch (e) {}
+  }, [stats, user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const settingsPayload: PersistedCustomization = {
+      hardwareTheme,
+      environmentBg,
+      eyeProtection,
+      readingTheme,
+    };
+    try {
+      localStorage.setItem(getSettingsStorageKey(user.uid), JSON.stringify(settingsPayload));
+    } catch (e) {}
+  }, [hardwareTheme, environmentBg, eyeProtection, readingTheme, user]);
+
+  // Debounced sync of profile (stats + settings) to Firestore & Express Server
+  useEffect(() => {
+    if (!user || isHydratingRef.current) return;
+    const timer = setTimeout(() => {
       const settingsPayload: PersistedCustomization = {
         hardwareTheme,
         environmentBg,
         eyeProtection,
         readingTheme,
       };
-      localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(settingsPayload));
-    } catch (e) {}
-  }, [hardwareTheme, environmentBg, eyeProtection, readingTheme]);
+      syncProfileToCloud(stats, settingsPayload);
 
-  // Debounced sync to Express Backend Server
-  useEffect(() => {
-    const timer = setTimeout(() => {
       const compactBooks = books.map((b) => ({
         ...b,
         pdfFile: undefined,
         pdfDataUrl: b.pdfDataUrl?.startsWith('blob:') ? undefined : b.pdfDataUrl,
       }));
-      fetch('/api/state', {
+      fetch(`/api/state?uid=${encodeURIComponent(user.uid)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           books: compactBooks,
           stacks,
           stats,
-          settings: { hardwareTheme, environmentBg, eyeProtection, readingTheme },
+          settings: settingsPayload,
         }),
       }).catch(() => {});
-    }, 600);
+    }, 1500);
     return () => clearTimeout(timer);
-  }, [books, stacks, stats, hardwareTheme, environmentBg, eyeProtection, readingTheme]);
+  }, [
+    user,
+    books,
+    stacks,
+    stats,
+    hardwareTheme,
+    environmentBg,
+    eyeProtection,
+    readingTheme,
+    syncProfileToCloud,
+  ]);
 
   // Computed stats enriched with live book metrics
   const computedStats = useMemo<ReadingStats>(() => {
@@ -330,21 +546,19 @@ export default function App() {
       currentStreakDays: prev.currentStreakDays === 0 ? 1 : prev.currentStreakDays,
     }));
 
-    setBooks((prev) =>
-      prev.map((b) =>
-        b.id === book.id
-          ? {
-              ...b,
-              lastReadDate: today,
-              lastReadTimestamp: now,
-              ...(mode ? { preferredReadingMode: mode } : {}),
-            }
-          : b
-      )
-    );
+    const updatedBook: Book = {
+      ...book,
+      lastReadDate: today,
+      lastReadTimestamp: now,
+      ...(mode ? { preferredReadingMode: mode } : {}),
+    };
+
+    setBooks((prev) => prev.map((b) => (b.id === book.id ? updatedBook : b)));
+    queueBookSync(updatedBook, 600);
   };
 
   const handleBackToDashboard = () => {
+    flushPendingBookSyncs();
     setCurrentView('dashboard');
   };
 
@@ -361,10 +575,11 @@ export default function App() {
           const progressPercent = pageChanged
             ? Math.round((clampedPage / validTotal) * 100)
             : b.progressPercent || Math.round((clampedPage / validTotal) * 100);
-          const isFinished = clampedPage >= validTotal && (pageChanged || b.isFinished || progressPercent >= 100);
+          const isFinished =
+            clampedPage >= validTotal && (pageChanged || b.isFinished || progressPercent >= 100);
           const addedMinutes = secondsRead > 0 ? Number((secondsRead / 60).toFixed(2)) : 0;
 
-          return {
+          const updated: Book = {
             ...b,
             currentPage: clampedPage,
             progressPercent,
@@ -373,6 +588,8 @@ export default function App() {
             lastReadDate: today,
             lastReadTimestamp: now,
           };
+          queueBookSync(updated, 1200);
+          return updated;
         }
         return b;
       })
@@ -413,7 +630,9 @@ export default function App() {
                   createdAt: new Date().toISOString(),
                 },
               ];
-          return { ...b, bookmarks: updatedBookmarks };
+          const updated = { ...b, bookmarks: updatedBookmarks };
+          syncBookToCloud(updated);
+          return updated;
         }
         return b;
       })
@@ -426,10 +645,12 @@ export default function App() {
         if (b.id === bookId) {
           const currentHighlights = Array.isArray(b.highlights) ? b.highlights : [];
           const existing = currentHighlights.filter((h) => h.id !== highlight.id);
-          return {
+          const updated = {
             ...b,
             highlights: [...existing, highlight],
           };
+          syncBookToCloud(updated);
+          return updated;
         }
         return b;
       })
@@ -441,10 +662,12 @@ export default function App() {
       prev.map((b) => {
         if (b.id === bookId) {
           const currentHighlights = Array.isArray(b.highlights) ? b.highlights : [];
-          return {
+          const updated = {
             ...b,
             highlights: currentHighlights.map((h) => (h.id === highlight.id ? highlight : h)),
           };
+          syncBookToCloud(updated);
+          return updated;
         }
         return b;
       })
@@ -456,10 +679,12 @@ export default function App() {
       prev.map((b) => {
         if (b.id === bookId) {
           const currentHighlights = Array.isArray(b.highlights) ? b.highlights : [];
-          return {
+          const updated = {
             ...b,
             highlights: currentHighlights.filter((h) => h.id !== highlightId),
           };
+          syncBookToCloud(updated);
+          return updated;
         }
         return b;
       })
@@ -475,16 +700,41 @@ export default function App() {
       createdAt: new Date().toISOString().split('T')[0],
     };
     setStacks((prev) => [...prev, newStack]);
+
+    if (user) {
+      const path = `users/${user.uid}/stacks/${newStack.id}`;
+      setDoc(
+        doc(db, 'users', user.uid, 'stacks', newStack.id),
+        stripUndefined({
+          ...newStack,
+          uid: user.uid,
+        })
+      ).catch((err) => handleFirestoreError(err, OperationType.CREATE, path));
+    }
   };
 
   const handleDeleteStack = (stackId: string) => {
     setStacks((prev) => prev.filter((s) => s.id !== stackId));
     setBooks((prev) =>
-      prev.map((b) => ({
-        ...b,
-        stackIds: b.stackIds?.filter((id) => id !== stackId),
-      }))
+      prev.map((b) => {
+        if (b.stackIds?.includes(stackId)) {
+          const updated = {
+            ...b,
+            stackIds: b.stackIds.filter((id) => id !== stackId),
+          };
+          syncBookToCloud(updated);
+          return updated;
+        }
+        return b;
+      })
     );
+
+    if (user) {
+      const path = `users/${user.uid}/stacks/${stackId}`;
+      deleteDoc(doc(db, 'users', user.uid, 'stacks', stackId)).catch((err) =>
+        handleFirestoreError(err, OperationType.DELETE, path)
+      );
+    }
   };
 
   const handleToggleBookInStack = (bookId: string, stackId: string) => {
@@ -496,10 +746,12 @@ export default function App() {
           const updatedStacks = exists
             ? currentStacks.filter((id) => id !== stackId)
             : [...currentStacks, stackId];
-          return {
+          const updated = {
             ...b,
             stackIds: updatedStacks,
           };
+          syncBookToCloud(updated);
+          return updated;
         }
         return b;
       })
@@ -514,30 +766,89 @@ export default function App() {
       stackIds: [],
     };
     setBooks((prev) => [updatedNewBook, ...prev.filter((b) => b.id !== newBook.id)]);
+    syncBookToCloud(updatedNewBook);
     setActiveBookId(updatedNewBook.id);
     setCurrentView('reading');
   };
 
   const handleImportDriveBook = (driveBook: Book) => {
+    const updatedDriveBook: Book = {
+      ...driveBook,
+      lastReadTimestamp: Date.now(),
+      stackIds: [],
+    };
     setBooks((prev) => {
       const filtered = prev.filter((b) => b.id !== driveBook.id);
-      return [{ ...driveBook, lastReadTimestamp: Date.now(), stackIds: [] }, ...filtered];
+      return [updatedDriveBook, ...filtered];
     });
+    syncBookToCloud(updatedDriveBook);
   };
 
   const handleDeleteBook = (bookId: string) => {
+    const pending = pendingBookSyncTimersRef.current.get(bookId);
+    if (pending) {
+      clearTimeout(pending.timer);
+      pendingBookSyncTimersRef.current.delete(bookId);
+    }
     deletePdfFromStorage(bookId).catch(() => {});
     setBooks((prev) => prev.filter((b) => b.id !== bookId));
+    if (user) {
+      const path = `users/${user.uid}/books/${bookId}`;
+      deleteDoc(doc(db, 'users', user.uid, 'books', bookId)).catch((err) =>
+        handleFirestoreError(err, OperationType.DELETE, path)
+      );
+    }
+  };
+
+  const handleUpdateReadingMode = (bookId: string, mode: PdfReadingMode) => {
+    setBooks((prev) =>
+      prev.map((b) => {
+        if (b.id === bookId) {
+          const updated: Book = {
+            ...b,
+            preferredReadingMode: mode,
+          };
+          queueBookSync(updated, 800);
+          return updated;
+        }
+        return b;
+      })
+    );
+  };
+
+  const handleSignOut = async () => {
+    flushPendingBookSyncs();
+    try {
+      await signOut(auth);
+    } catch (err) {
+      console.error('Sign out error:', err);
+    }
   };
 
   return (
     <DeviceFrame eyeProtection={eyeProtection}>
-      {currentView === 'dashboard' ? (
+      {authLoading ? (
+        <div className="flex-1 flex flex-col items-center justify-center p-6 bg-[#DBD9D3] text-[#2B2A27] font-sans gap-3">
+          <img
+            src="/pwa-192x192.png"
+            alt="Bookshelf Logo"
+            className="w-10 h-10 rounded-xl object-cover border border-[#6E6C66]"
+          />
+          <BookshelfWordmark className="h-[14px] w-auto" />
+          <span className="text-xs text-[#575550]">Loading your bookshelf...</span>
+        </div>
+      ) : !user ? (
+        <LoginView />
+      ) : currentView === 'dashboard' ? (
         <DashboardView
           books={books}
           stats={computedStats}
           stacks={stacks}
           currentlyReadingBook={currentlyReadingBook}
+          userEmail={user.email}
+          userName={user.displayName}
+          userPhotoUrl={user.photoURL}
+          onSignOut={handleSignOut}
           onOpenBook={handleOpenBook}
           onOpenUploadModal={() => setIsUploadOpen(true)}
           onOpenDriveModal={() => setIsDriveOpen(true)}
@@ -558,6 +869,7 @@ export default function App() {
           onAddHighlight={handleAddHighlight}
           onUpdateHighlight={handleUpdateHighlight}
           onDeleteHighlight={handleDeleteHighlight}
+          onChangeReadingMode={handleUpdateReadingMode}
           eyeProtection={eyeProtection}
           onChangeEyeProtection={setEyeProtection}
         />

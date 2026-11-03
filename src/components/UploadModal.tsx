@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { X } from 'lucide-react';
-import { Book, PdfReadingMode } from '../types';
+import { Book } from '../types';
 import { pdfjsLib } from '../utils/pdfSetup';
 import { savePdfToStorage, createBookCoverDataUrl } from '../utils/pdfStorage';
 
@@ -19,7 +19,6 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [title, setTitle] = useState('');
   const [author, setAuthor] = useState('');
-  const [readingMode, setReadingMode] = useState<PdfReadingMode>('reflow-ereader');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -56,7 +55,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     setError(null);
 
     try {
-      const bookId = `local-pdf-${Date.now()}`;
+      const bookId = `local-pdf-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       const rawBuffer = await selectedFile.arrayBuffer();
       const uint8 = new Uint8Array(rawBuffer);
 
@@ -72,7 +71,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
         try {
           const page1 = await pdfDoc.getPage(1);
-          const viewport = page1.getViewport({ scale: 0.55 });
+          const baseViewport = page1.getViewport({ scale: 1 });
+          const targetWidth = 280;
+          const scale = Math.min(0.55, targetWidth / Math.max(1, baseViewport.width));
+          const viewport = page1.getViewport({ scale });
           const canvas = document.createElement('canvas');
           canvas.width = viewport.width;
           canvas.height = viewport.height;
@@ -83,7 +85,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               viewport,
               canvas,
             } as any).promise;
-            coverThumbnail = canvas.toDataURL('image/jpeg', 0.85);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.72);
+            if (dataUrl.length < 300000) {
+              coverThumbnail = dataUrl;
+            }
           }
         } catch {
           // Fallback to generated cover below
@@ -117,7 +122,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         addedDate: new Date().toISOString().split('T')[0],
         totalTimeReadMinutes: 0,
         pdfDataUrl: blobUrl,
-        preferredReadingMode: readingMode,
+        preferredReadingMode: 'reflow-ereader',
         bookmarks: [],
         highlights: [],
       };
@@ -200,44 +205,6 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 </div>
               </div>
             )}
-          </div>
-
-          {/* Reading Mode Selection */}
-          <div className="space-y-1.5">
-            <label className="block text-[11px] font-medium text-[#575550] uppercase tracking-wider">
-              Reading Mode
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setReadingMode('reflow-ereader')}
-                className={`p-2.5 rounded-lg border text-left transition cursor-pointer ${
-                  readingMode === 'reflow-ereader'
-                    ? 'border-[#2B2A27] bg-[#383633] text-[#EAE8E2]'
-                    : 'border-[#6E6C66] bg-[#DBD9D3] hover:bg-[#D2D0C9] text-[#2B2A27]'
-                }`}
-              >
-                <div className="font-medium text-xs">Reflow Text</div>
-                <p className={`text-[10px] mt-0.5 ${readingMode === 'reflow-ereader' ? 'text-[#C8C6BE]' : 'text-[#575550]'}`}>
-                  Adjustable font & theme
-                </p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setReadingMode('original-pdf')}
-                className={`p-2.5 rounded-lg border text-left transition cursor-pointer ${
-                  readingMode === 'original-pdf'
-                    ? 'border-[#2B2A27] bg-[#383633] text-[#EAE8E2]'
-                    : 'border-[#6E6C66] bg-[#DBD9D3] hover:bg-[#D2D0C9] text-[#2B2A27]'
-                }`}
-              >
-                <div className="font-medium text-xs">Original PDF</div>
-                <p className={`text-[10px] mt-0.5 ${readingMode === 'original-pdf' ? 'text-[#C8C6BE]' : 'text-[#575550]'}`}>
-                  Exact page layout
-                </p>
-              </button>
-            </div>
           </div>
 
           {/* Title & Author Inputs */}

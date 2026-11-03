@@ -5,8 +5,8 @@ interface BookshelfWordmarkProps {
 }
 
 /**
- * Precision-engineered vector wordmark for "BOOKSHELF" inspired by the SETLIFE STUDIOS
- * extended geometric grotesque aesthetic. Every letter shares an exact 28-unit cap height
+ * Precision-engineered vector wordmark for "BOOKSHELF" with an extended geometric
+ * grotesque aesthetic. Every letter shares an exact 28-unit cap height
  * (y=2 to y=30) and 5.8-unit horizontal bar weight so there is zero height discrepancy
  * across mobile, tablet, laptop, and desktop screens.
  */
@@ -23,7 +23,7 @@ export const BookshelfWordmark: React.FC<BookshelfWordmarkProps> = ({
       aria-label="Bookshelf"
     >
       <defs>
-        {/* Signature SETLIFE-inspired horizontal speed-bar gradient for the extended 'E' */}
+        {/* Horizontal speed-bar gradient for the extended 'E' */}
         <linearGradient id="bookshelf-speed-e" x1="193" y1="16" x2="249" y2="16" gradientUnits="userSpaceOnUse">
           <stop offset="0%" stopColor="#FF4800" />
           <stop offset="22%" stopColor="#EB4205" />

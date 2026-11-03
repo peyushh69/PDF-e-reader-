@@ -11,7 +11,7 @@ import {
   Filter,
 } from 'lucide-react';
 import { Book, Highlight } from '../types';
-import { HIGHLIGHT_COLORS } from './KindleAnnotationToolbar';
+import { HIGHLIGHT_COLORS } from './AnnotationToolbar';
 
 interface NotesAndHighlightsModalProps {
   isOpen: boolean;

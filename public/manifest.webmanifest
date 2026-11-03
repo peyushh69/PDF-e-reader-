@@ -2,7 +2,7 @@
   "id": "/",
   "name": "Bookshelf",
   "short_name": "Bookshelf",
-  "description": "A distraction-free Kindle & Kobo inspired e-reader dashboard with e-ink reading interface, Google Drive & local PDF support.",
+  "description": "A distraction-free e-reader dashboard with matte e-ink reading interface, Google Drive & local PDF support.",
   "theme_color": "#303030",
   "background_color": "#DBD9D3",
   "display": "standalone",
