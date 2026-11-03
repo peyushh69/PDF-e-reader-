@@ -26,17 +26,20 @@ export const LoginView: React.FC<LoginViewProps> = ({ onFallbackSignIn }) => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [unauthorizedDomainHost, setUnauthorizedDomainHost] = useState<string | null>(null);
 
+  const handleContinueOnDevice = () => {
+    if (!onFallbackSignIn) return;
+    onFallbackSignIn({
+      uid: 'local-reader-profile',
+      email: 'Personal Device Library',
+      displayName: 'Bookshelf Reader',
+      photoURL: null,
+      isLocalProfile: true,
+    });
+  };
+
   const handleGoogleSignIn = async () => {
     if (!isFirebaseReady || !auth) {
-      if (onFallbackSignIn) {
-        onFallbackSignIn({
-          uid: 'local-reader-profile',
-          email: 'reader@bookshelf.local',
-          displayName: 'Bookshelf Reader',
-          photoURL: null,
-          isLocalProfile: true,
-        });
-      }
+      handleContinueOnDevice();
       return;
     }
 
@@ -54,14 +57,22 @@ export const LoginView: React.FC<LoginViewProps> = ({ onFallbackSignIn }) => {
         try {
           await signInWithRedirect(auth, googleProvider);
           return;
-        } catch (redirectErr: any) {
-          setErrorMsg(redirectErr?.message || 'Popup was blocked. Please allow popups and try again.');
+        } catch {
+          handleContinueOnDevice();
+          return;
         }
-      } else if (code === 'auth/unauthorized-domain') {
+      } else if (
+        code === 'auth/unauthorized-domain' ||
+        code === 'auth/operation-not-supported-in-this-environment'
+      ) {
+        if (onFallbackSignIn) {
+          handleContinueOnDevice();
+          return;
+        }
         const host = typeof window !== 'undefined' ? window.location.hostname : 'your Vercel domain';
         setUnauthorizedDomainHost(host);
         setErrorMsg(
-          `Domain "${host}" is not yet added to Firebase Authorized Domains. You can continue immediately with device storage or authorize "${host}" in Firebase Console.`
+          `Domain "${host}" is not yet added to Firebase Authorized Domains.`
         );
       } else {
         setErrorMsg(err?.message || 'Unable to sign in with Google. Please try again.');
@@ -69,17 +80,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onFallbackSignIn }) => {
     } finally {
       setIsSigningIn(false);
     }
-  };
-
-  const handleContinueOnDevice = () => {
-    if (!onFallbackSignIn) return;
-    onFallbackSignIn({
-      uid: 'local-reader-profile',
-      email: 'Personal Device Library',
-      displayName: 'Bookshelf Reader',
-      photoURL: null,
-      isLocalProfile: true,
-    });
   };
 
   return (
