@@ -1,6 +1,5 @@
-const CACHE_NAME = 'kindle-lab-pwa-v1';
+const CACHE_NAME = 'bookshelf-pwa-v3';
 const STATIC_ASSETS = [
-  '/',
   '/manifest.webmanifest',
   '/pwa-192x192.png',
   '/pwa-512x512.png',
@@ -44,6 +43,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Always fetch fresh HTML on page navigation so new deployments never load stale bundles
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request).catch(() => caches.match('/index.html') || caches.match('/'))
+    );
+    return;
+  }
+
   event.respondWith(
     fetch(request)
       .then((response) => {
@@ -64,6 +71,7 @@ self.addEventListener('fetch', (event) => {
         }
         return response;
       })
-      .catch(() => caches.match(request).then((cached) => cached || caches.match('/')))
+      .catch(() => caches.match(request))
   );
 });
+

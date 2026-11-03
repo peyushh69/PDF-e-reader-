@@ -17,13 +17,15 @@ import { ReadingInterface } from './components/ReadingInterface';
 import { UploadModal } from './components/UploadModal';
 import { GoogleDriveModal } from './components/GoogleDriveModal';
 import { ThemeAndEyeProtectionModal } from './components/ThemeAndEyeProtectionModal';
-import { LoginView } from './components/LoginView';
+import { LoginView, AppUserProfile } from './components/LoginView';
 import { BookshelfWordmark } from './components/BookshelfWordmark';
 import { deletePdfFromStorage, createBookCoverDataUrl } from './utils/pdfStorage';
 import {
   auth,
   db,
+  isFirebaseReady,
   onAuthStateChanged,
+  getRedirectResult,
   signOut,
   doc,
   setDoc,
@@ -32,8 +34,9 @@ import {
   onSnapshot,
   handleFirestoreError,
   OperationType,
-  User,
 } from './firebase';
+
+const LOCAL_PROFILE_STORAGE_KEY = 'bookshelf_active_local_profile_v1';
 
 interface PersistedCustomization {
   hardwareTheme: DeviceHardwareTheme;
@@ -163,7 +166,15 @@ function prepareBookForFirestore(uid: string, book: Book): Record<string, any> {
 }
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AppUserProfile | null>(() => {
+    try {
+      const savedProfile = localStorage.getItem(LOCAL_PROFILE_STORAGE_KEY);
+      if (savedProfile) {
+        return JSON.parse(savedProfile) as AppUserProfile;
+      }
+    } catch {}
+    return null;
+  });
   const [authLoading, setAuthLoading] = useState<boolean>(true);
 
   const [stacks, setStacks] = useState<ReadingStack[]>(DEFAULT_STACKS);
@@ -193,26 +204,74 @@ export default function App() {
   const isHydratingRef = useRef(false);
   const pendingBookSyncTimersRef = useRef<Map<string, { book: Book; timer: any }>>(new Map());
 
-  // 1. Listen to Firebase Authentication state
+  // 1. Listen to Firebase Authentication state with safety fallback
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
+    if (!isFirebaseReady || !auth) {
       setAuthLoading(false);
-      if (!firebaseUser) {
-        setCurrentView('dashboard');
-        setActiveBookId('');
-        setBooks([]);
-        setStacks([]);
-        setStats(INITIAL_STATS);
-      }
-    });
-    return () => unsubscribe();
+      return;
+    }
+
+    const safetyTimer = setTimeout(() => {
+      setAuthLoading(false);
+    }, 2500);
+
+    getRedirectResult(auth).catch(() => {});
+
+    let unsubscribe = () => {};
+    try {
+      unsubscribe = onAuthStateChanged(
+        auth,
+        (firebaseUser) => {
+          clearTimeout(safetyTimer);
+          if (firebaseUser) {
+            try {
+              localStorage.removeItem(LOCAL_PROFILE_STORAGE_KEY);
+            } catch {}
+            setUser({
+              uid: firebaseUser.uid,
+              email: firebaseUser.email,
+              displayName: firebaseUser.displayName,
+              photoURL: firebaseUser.photoURL,
+              isLocalProfile: false,
+            });
+          } else {
+            try {
+              const savedLocal = localStorage.getItem(LOCAL_PROFILE_STORAGE_KEY);
+              if (savedLocal) {
+                setUser(JSON.parse(savedLocal) as AppUserProfile);
+                setAuthLoading(false);
+                return;
+              }
+            } catch {}
+            setUser(null);
+            setCurrentView('dashboard');
+            setActiveBookId('');
+            setBooks([]);
+            setStacks([]);
+            setStats(INITIAL_STATS);
+          }
+          setAuthLoading(false);
+        },
+        () => {
+          clearTimeout(safetyTimer);
+          setAuthLoading(false);
+        }
+      );
+    } catch {
+      clearTimeout(safetyTimer);
+      setAuthLoading(false);
+    }
+
+    return () => {
+      clearTimeout(safetyTimer);
+      unsubscribe();
+    };
   }, []);
 
   // Immediate Firestore write for a book
   const syncBookToCloud = useCallback(
     async (book: Book) => {
-      if (!user) return;
+      if (!user || user.isLocalProfile || !isFirebaseReady || !db) return;
       const pending = pendingBookSyncTimersRef.current.get(book.id);
       if (pending) {
         clearTimeout(pending.timer);
@@ -257,7 +316,7 @@ export default function App() {
   // Helper to persist user profile (stats & settings) to Firestore
   const syncProfileToCloud = useCallback(
     async (nextStats: ReadingStats, nextSettings: PersistedCustomization) => {
-      if (!user) return;
+      if (!user || user.isLocalProfile || !isFirebaseReady || !db) return;
       const path = `users/${user.uid}`;
       try {
         await setDoc(
@@ -333,6 +392,11 @@ export default function App() {
       }
     } catch (e) {
       console.warn('Local user cache read notice:', e);
+    }
+
+    if (user.isLocalProfile || !isFirebaseReady || !db) {
+      isHydratingRef.current = false;
+      return;
     }
 
     // Subscribe to Firestore /users/{uid}
@@ -701,7 +765,7 @@ export default function App() {
     };
     setStacks((prev) => [...prev, newStack]);
 
-    if (user) {
+    if (user && !user.isLocalProfile && isFirebaseReady && db) {
       const path = `users/${user.uid}/stacks/${newStack.id}`;
       setDoc(
         doc(db, 'users', user.uid, 'stacks', newStack.id),
@@ -729,7 +793,7 @@ export default function App() {
       })
     );
 
-    if (user) {
+    if (user && !user.isLocalProfile && isFirebaseReady && db) {
       const path = `users/${user.uid}/stacks/${stackId}`;
       deleteDoc(doc(db, 'users', user.uid, 'stacks', stackId)).catch((err) =>
         handleFirestoreError(err, OperationType.DELETE, path)
@@ -792,7 +856,7 @@ export default function App() {
     }
     deletePdfFromStorage(bookId).catch(() => {});
     setBooks((prev) => prev.filter((b) => b.id !== bookId));
-    if (user) {
+    if (user && !user.isLocalProfile && isFirebaseReady && db) {
       const path = `users/${user.uid}/books/${bookId}`;
       deleteDoc(doc(db, 'users', user.uid, 'books', bookId)).catch((err) =>
         handleFirestoreError(err, OperationType.DELETE, path)
@@ -816,12 +880,26 @@ export default function App() {
     );
   };
 
+  const handleFallbackSignIn = (profile: AppUserProfile) => {
+    try {
+      localStorage.setItem(LOCAL_PROFILE_STORAGE_KEY, JSON.stringify(profile));
+    } catch {}
+    setUser(profile);
+    setAuthLoading(false);
+  };
+
   const handleSignOut = async () => {
     flushPendingBookSyncs();
     try {
-      await signOut(auth);
-    } catch (err) {
-      console.error('Sign out error:', err);
+      localStorage.removeItem(LOCAL_PROFILE_STORAGE_KEY);
+    } catch {}
+    setUser(null);
+    if (isFirebaseReady && auth) {
+      try {
+        await signOut(auth);
+      } catch (err) {
+        console.error('Sign out error:', err);
+      }
     }
   };
 
@@ -838,7 +916,7 @@ export default function App() {
           <span className="text-xs text-[#575550]">Loading your bookshelf...</span>
         </div>
       ) : !user ? (
-        <LoginView />
+        <LoginView onFallbackSignIn={handleFallbackSignIn} />
       ) : currentView === 'dashboard' ? (
         <DashboardView
           books={books}
