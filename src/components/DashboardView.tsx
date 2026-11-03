@@ -6,6 +6,8 @@ import {
   PdfReadingMode,
 } from '../types';
 import { createBookCoverDataUrl } from '../utils/pdfStorage';
+import { PWAInstallButton } from './PWAInstallButton';
+import { BookshelfWordmark } from './BookshelfWordmark';
 import {
   Search,
   Plus,
@@ -103,16 +105,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#DBD9D3] text-[#2B2A27] font-sans select-none antialiased">
       {/* Top Bar */}
-      <header className="px-3 sm:px-6 py-2.5 sm:py-3 bg-[#DBD9D3] border-b border-[#B8B6AF] flex items-center justify-between gap-2 sm:gap-6 shrink-0 z-20">
-        <span className="font-sans font-semibold text-sm sm:text-lg tracking-tight text-[#2B2A27] whitespace-nowrap shrink-0">
-          Kindle Lab
-        </span>
+      <header className="px-3 sm:px-5 lg:px-6 h-12 sm:h-13 md:h-14 bg-[#DBD9D3] border-b border-[#B8B6AF] flex items-center justify-between gap-2 sm:gap-4 shrink-0 z-20">
+        <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 shrink-0">
+          <img
+            src="/pwa-192x192.png"
+            alt="Bookshelf Logo"
+            className="w-5 h-5 sm:w-6 sm:h-6 md:w-6.5 md:h-6.5 rounded-[5px] object-cover border border-[#6E6C66] shrink-0"
+          />
+          <BookshelfWordmark className="h-[11.5px] sm:h-[13.5px] md:h-[15px] lg:h-[16px] xl:h-[17px] w-auto" />
+        </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+          <PWAInstallButton />
+
           {onOpenThemeModal && (
             <button
               onClick={onOpenThemeModal}
-              className="h-8 px-2.5 sm:px-3 bg-[#E4E2DC] hover:bg-[#D5D3CC] text-[#2B2A27] border border-[#6E6C66] rounded-lg text-[11px] sm:text-xs font-medium transition cursor-pointer whitespace-nowrap shrink-0"
+              className="h-7 sm:h-8 px-2 sm:px-3 bg-[#E4E2DC] hover:bg-[#D5D3CC] text-[#2B2A27] border border-[#6E6C66] rounded-lg text-[11px] sm:text-xs font-medium transition cursor-pointer whitespace-nowrap shrink-0"
             >
               Display
             </button>
@@ -120,14 +129,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           <button
             onClick={onOpenDriveModal}
-            className="h-8 px-2.5 sm:px-3 bg-[#E4E2DC] hover:bg-[#D5D3CC] text-[#2B2A27] border border-[#6E6C66] rounded-lg text-[11px] sm:text-xs font-medium transition cursor-pointer whitespace-nowrap shrink-0"
+            className="h-7 sm:h-8 px-2 sm:px-3 bg-[#E4E2DC] hover:bg-[#D5D3CC] text-[#2B2A27] border border-[#6E6C66] rounded-lg text-[11px] sm:text-xs font-medium transition cursor-pointer whitespace-nowrap shrink-0"
           >
-            Google Drive
+            <span className="sm:hidden">Drive</span>
+            <span className="hidden sm:inline">Google Drive</span>
           </button>
 
           <button
             onClick={onOpenUploadModal}
-            className="h-8 px-2.5 sm:px-3.5 bg-[#383633] hover:bg-[#2B2A27] text-[#EAE8E2] border border-[#2B2A27] rounded-lg text-[11px] sm:text-xs font-medium transition cursor-pointer whitespace-nowrap shrink-0"
+            className="h-7 sm:h-8 px-2.5 sm:px-3.5 bg-[#383633] hover:bg-[#2B2A27] text-[#EAE8E2] border border-[#2B2A27] rounded-lg text-[11px] sm:text-xs font-medium transition cursor-pointer whitespace-nowrap shrink-0"
           >
             Upload PDF
           </button>
