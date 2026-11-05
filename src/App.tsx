@@ -24,7 +24,9 @@ import {
   createBookCoverDataUrl,
   getPdfFromStorage,
   uploadPdfChunksToCloud,
+  savePdfToStorage,
 } from './utils/pdfStorage';
+import { buildBookNotesPdfData } from './utils/pdfGenerator';
 import {
   auth,
   db,
@@ -101,7 +103,8 @@ function sanitizeBooksList(rawBooks: any[]): Book[] {
         b.format === 'pdf' &&
         b.id &&
         b.title &&
-        !String(b.id).startsWith('book-')
+        !String(b.id).startsWith('book-') &&
+        !String(b.id).startsWith('notes-pdf-')
     )
     .map((book) => {
       const hasValidCover =
@@ -169,6 +172,10 @@ function prepareBookForFirestore(uid: string, book: Book): Record<string, any> {
     highlights: Array.isArray(book.highlights)
       ? book.highlights.slice(0, 1000).map((hl) => stripUndefined({ ...hl }))
       : [],
+    contentPages:
+      String(book.id).startsWith('notes-pdf-') && Array.isArray(book.contentPages)
+        ? book.contentPages.slice(0, 120)
+        : undefined,
   });
 }
 
@@ -450,6 +457,10 @@ export default function App() {
         const cloudBooks: Book[] = [];
         snap.forEach((docSnap) => {
           const data = docSnap.data();
+          if (data && data.id && String(data.id).startsWith('notes-pdf-')) {
+            deleteDoc(doc(db, 'users', uid, 'books', String(data.id))).catch(() => {});
+            return;
+          }
           if (data && data.id && data.title) {
             cloudBooks.push(data as Book);
           }
@@ -891,6 +902,53 @@ export default function App() {
     syncBookToCloud(updatedDriveBook);
   };
 
+  const handleSaveNotesPdfToLibrary = async (sourceBook: Book) => {
+    const cleanSourceId = sourceBook.id.replace(/^notes-pdf-/, '');
+    const notesBookId = `notes-pdf-${cleanSourceId}`;
+    const baseTitle = sourceBook.title.replace(/\s*—\s*Notes PDF$/i, '').trim();
+    const { pdfBytes, contentPages, totalPages } = buildBookNotesPdfData({
+      ...sourceBook,
+      title: baseTitle,
+    });
+
+    const blobUrl = await savePdfToStorage(notesBookId, pdfBytes, user?.uid);
+    const notesTitle = `${baseTitle} — Notes PDF`;
+    const notesCover = createBookCoverDataUrl({
+      title: notesTitle,
+      author: sourceBook.author || 'Short Notes',
+      subtitle: 'SHORT NOTES & HIGHLIGHTS PDF',
+      bgHex: '#1E1C19',
+      accentHex: '#FAF8F4',
+    });
+
+    const notesBook: Book = {
+      id: notesBookId,
+      uid: user?.uid,
+      title: notesTitle,
+      author: `${sourceBook.author} · Short Notes`,
+      coverUrl: notesCover,
+      source: 'local',
+      format: 'pdf',
+      totalPages: Math.max(1, totalPages),
+      currentPage: 1,
+      progressPercent: 0,
+      fileSize: `${Math.max(0.05, pdfBytes.byteLength / (1024 * 1024)).toFixed(2)} MB`,
+      addedDate: new Date().toISOString().split('T')[0],
+      lastReadDate: new Date().toISOString().split('T')[0],
+      lastReadTimestamp: Date.now(),
+      totalTimeReadMinutes: 0,
+      pdfDataUrl: blobUrl,
+      contentPages,
+      preferredReadingMode: 'reflow-ereader',
+      stackIds: sourceBook.stackIds || [],
+      bookmarks: [],
+      highlights: [],
+    };
+
+    setBooks((prev) => [notesBook, ...prev.filter((b) => b.id !== notesBookId)]);
+    await syncBookToCloud(notesBook);
+  };
+
   const handleDeleteBook = (bookId: string) => {
     const pending = pendingBookSyncTimersRef.current.get(bookId);
     if (pending) {
@@ -973,6 +1031,10 @@ export default function App() {
           onDeleteStack={handleDeleteStack}
           onToggleBookInStack={handleToggleBookInStack}
           onOpenThemeModal={() => setIsThemeModalOpen(true)}
+          onAddHighlight={handleAddHighlight}
+          onUpdateHighlight={handleUpdateHighlight}
+          onDeleteHighlight={handleDeleteHighlight}
+          onSaveNotesPdfToLibrary={handleSaveNotesPdfToLibrary}
         />
       ) : activeBook ? (
         <ReadingInterface
@@ -989,6 +1051,7 @@ export default function App() {
           onChangeReadingMode={handleUpdateReadingMode}
           eyeProtection={eyeProtection}
           onChangeEyeProtection={setEyeProtection}
+          onSaveNotesPdfToLibrary={handleSaveNotesPdfToLibrary}
         />
       ) : (
         <div className="flex-1 flex items-center justify-center p-8 bg-[var(--paper-bg)]">

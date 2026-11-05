@@ -4,8 +4,10 @@ import {
   ReadingStats,
   ReadingStack,
   PdfReadingMode,
+  Highlight,
 } from '../types';
 import { createBookCoverDataUrl } from '../utils/pdfStorage';
+import { downloadBookNotesPdf } from '../utils/pdfGenerator';
 import { PWAInstallButton } from './PWAInstallButton';
 import { BookshelfWordmark } from './BookshelfWordmark';
 import {
@@ -16,6 +18,12 @@ import {
   Trash2,
   LogOut,
   Upload,
+  FileText,
+  Download,
+  ArrowLeft,
+  ChevronRight,
+  Edit3,
+  ExternalLink,
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -35,6 +43,10 @@ interface DashboardViewProps {
   onDeleteStack: (stackId: string) => void;
   onToggleBookInStack: (bookId: string, stackId: string) => void;
   onOpenThemeModal?: () => void;
+  onAddHighlight?: (bookId: string, highlight: Highlight) => void;
+  onUpdateHighlight?: (bookId: string, highlight: Highlight) => void;
+  onDeleteHighlight?: (bookId: string, highlightId: string) => void;
+  onSaveNotesPdfToLibrary?: (book: Book) => Promise<void> | void;
 }
 
 const STACK_PALETTE = ['#161514', '#4A463F', '#6E685F', '#8A8275', '#3B4D41', '#5C3D3D'];
@@ -50,16 +62,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onSignOut,
   onOpenBook,
   onOpenUploadModal,
-  onOpenDriveModal,
   onDeleteBook,
   onCreateStack,
   onDeleteStack,
   onToggleBookInStack,
   onOpenThemeModal,
+  onAddHighlight,
+  onUpdateHighlight,
+  onDeleteHighlight,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStackFilter, setSelectedStackFilter] = useState<string | null>(null);
-  const [filterSource, setFilterSource] = useState<'all' | 'local' | 'drive' | 'finished'>('all');
+  const [filterSource, setFilterSource] = useState<
+    'all' | 'local' | 'drive' | 'finished' | 'notes-pdf'
+  >('all');
+  const [selectedNotesBookId, setSelectedNotesBookId] = useState<string | null>(null);
+  const [downloadingBookId, setDownloadingBookId] = useState<string | null>(null);
+
+  // Inline note editing / adding inside the Notes PDF screen
+  const [editingHighlightId, setEditingHighlightId] = useState<string | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState('');
+  const [isAddingNoteInline, setIsAddingNoteInline] = useState(false);
+  const [newNotePage, setNewNotePage] = useState<number>(1);
+  const [newNoteText, setNewNoteText] = useState('');
 
   const [isNewStackModalOpen, setIsNewStackModalOpen] = useState(false);
   const [newStackName, setNewStackName] = useState('');
@@ -77,6 +102,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setIsNewStackModalOpen(false);
   };
 
+  const handleDownloadPdf = async (book: Book, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (downloadingBookId) return;
+    setDownloadingBookId(book.id);
+    try {
+      await downloadBookNotesPdf(book);
+    } finally {
+      setDownloadingBookId(null);
+    }
+  };
+
   const activeBook = currentlyReadingBook || books[0] || null;
 
   const filteredBooks = books.filter((b) => {
@@ -92,10 +128,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       }
     }
 
-    if (filterSource === 'all') return true;
+    if (filterSource === 'all' || filterSource === 'notes-pdf') return true;
     if (filterSource === 'finished') return b.isFinished || (b.progressPercent || 0) >= 100;
     return b.source === filterSource;
   });
+
+  // For Notes PDF Line View: prioritize books that have highlights/notes at the top, followed by all other books
+  const notesPdfBooks = [...filteredBooks].sort((a, b) => {
+    const aCount = a.highlights?.length || 0;
+    const bCount = b.highlights?.length || 0;
+    if (bCount !== aCount) return bCount - aCount;
+    return a.title.localeCompare(b.title);
+  });
+
+  const selectedNotesBook = selectedNotesBookId
+    ? books.find((b) => b.id === selectedNotesBookId) || null
+    : null;
+
+  const sortedSelectedBookHighlights = selectedNotesBook
+    ? [...(selectedNotesBook.highlights || [])].sort((a, b) => {
+        if (a.pageNumber !== b.pageNumber) return a.pageNumber - b.pageNumber;
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      })
+    : [];
 
   const handleCoverError = (e: React.SyntheticEvent<HTMLImageElement, Event>, book: Book) => {
     const target = e.currentTarget;
@@ -300,6 +355,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <button
                   onClick={() => {
                     setSelectedStackFilter(null);
+                    setSelectedNotesBookId(null);
                     setFilterSource('all');
                   }}
                   className={`h-8 px-3.5 text-xs rounded-lg border transition cursor-pointer whitespace-nowrap shrink-0 ${
@@ -314,6 +370,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <button
                   onClick={() => {
                     setSelectedStackFilter(null);
+                    setSelectedNotesBookId(null);
                     setFilterSource(filterSource === 'finished' ? 'all' : 'finished');
                   }}
                   className={`h-8 px-3.5 text-xs rounded-lg border transition cursor-pointer whitespace-nowrap shrink-0 ${
@@ -325,6 +382,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   Completed ({stats.totalBooksFinished})
                 </button>
 
+                {/* Dedicated Notes PDF Box right beside All Books and Completed */}
+                <button
+                  onClick={() => {
+                    setSelectedStackFilter(null);
+                    setSelectedNotesBookId(null);
+                    setFilterSource(filterSource === 'notes-pdf' ? 'all' : 'notes-pdf');
+                  }}
+                  className={`h-8 px-3.5 text-xs rounded-lg border transition cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
+                    selectedStackFilter === null && filterSource === 'notes-pdf'
+                      ? 'bg-[var(--ink-primary)] text-[var(--ink-inverse)] border-[var(--ink-primary)] font-medium'
+                      : 'bg-[var(--paper-sheet)] text-[var(--ink-primary)] border-[var(--paper-border-strong)] hover:bg-[var(--paper-subtle)]'
+                  }`}
+                >
+                  <FileText size={12} className="shrink-0" />
+                  <span>Notes PDF ({books.length})</span>
+                </button>
+
                 {stacks.map((stack) => {
                   const isSelected = selectedStackFilter === stack.id;
                   const count = books.filter((b) => b.stackIds?.includes(stack.id)).length;
@@ -334,6 +408,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <button
                         onClick={() => {
                           setFilterSource('all');
+                          setSelectedNotesBookId(null);
                           setSelectedStackFilter(isSelected ? null : stack.id);
                         }}
                         className={`h-8 px-3.5 text-xs border transition cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
@@ -394,136 +469,496 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </section>
 
-          {/* Section 4: Editorial Paper-Ink Library Grid (Unnested, Clean Hairline Folios) */}
-          <section className="space-y-4 pb-6">
-            <div className="flex items-center justify-between border-b border-[var(--paper-border)] pb-2.5">
-              <h3 className="text-sm sm:text-base font-literata font-semibold text-[var(--ink-primary)]">
-                {selectedStackFilter
-                  ? stacks.find((s) => s.id === selectedStackFilter)?.name || 'Library'
-                  : 'Library'}
-              </h3>
-              <span className="text-xs text-[var(--ink-secondary)] tabular-nums">
-                {filteredBooks.length} {filteredBooks.length === 1 ? 'Volume' : 'Volumes'}
-              </span>
-            </div>
-
-            {books.length === 0 ? (
-              <div className="py-14 px-4 bg-[var(--paper-sheet)] border border-[var(--paper-border)] rounded-xl text-center space-y-3">
-                <p className="text-sm font-literata font-medium text-[var(--ink-primary)]">
-                  Your bookshelf is currently empty.
-                </p>
-                <p className="text-xs text-[var(--ink-secondary)] max-w-md mx-auto">
-                  Upload a PDF document or import from Google Drive to experience crisp Paper-Ink reading across all your devices.
-                </p>
-                <div className="pt-1">
-                  <button
-                    onClick={onOpenUploadModal}
-                    className="h-8.5 px-4 bg-[var(--ink-primary)] hover:opacity-90 text-[var(--ink-inverse)] rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition cursor-pointer"
-                  >
-                    <Upload size={12} />
-                    <span>Upload PDF</span>
-                  </button>
-                </div>
-              </div>
-            ) : filteredBooks.length === 0 ? (
-              <div className="py-12 bg-[var(--paper-sheet)] border border-[var(--paper-border)] rounded-xl text-center space-y-2.5">
-                <p className="text-xs text-[var(--ink-secondary)]">No books match the current filter.</p>
-                <button
-                  onClick={() => {
-                    setSearchQuery('');
-                    setSelectedStackFilter(null);
-                    setFilterSource('all');
-                  }}
-                  className="h-7.5 px-3.5 bg-[var(--ink-primary)] text-[var(--ink-inverse)] rounded-lg text-xs font-medium cursor-pointer"
-                >
-                  Reset Filters
-                </button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3.5 sm:gap-4">
-                {filteredBooks.map((book) => {
-                  const pct =
-                    book.progressPercent ??
-                    Math.round((book.currentPage / Math.max(1, book.totalPages)) * 100);
-
-                  return (
-                    <div
-                      key={book.id}
-                      className="flex flex-col group bg-[var(--paper-sheet)] rounded-xl border border-[var(--paper-border)] hover:border-[var(--ink-primary)] transition duration-150 overflow-hidden"
-                    >
-                      {/* Full Book Cover Matte Frame */}
-                      <div
-                        onClick={() => onOpenBook(book)}
-                        className="relative aspect-[3/4] w-full bg-[var(--paper-subtle)] flex items-center justify-center p-2.5 overflow-hidden cursor-pointer border-b border-[var(--paper-border)]"
+          {/* Section 4: Either Notes PDF View (Line View + Full Book Notes Screen) OR Clean Library Book Grid */}
+          {filterSource === 'notes-pdf' ? (
+            <section className="space-y-4 pb-6">
+              {selectedNotesBook ? (
+                /* Selected Book's Full Notes & Highlights View on Screen */
+                <div className="space-y-4">
+                  {/* Top Bar: Back to Line View + Book Title + Download PDF */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[var(--paper-sheet)] border border-[var(--paper-border)] rounded-xl p-3.5 sm:p-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <button
+                        onClick={() => {
+                          setSelectedNotesBookId(null);
+                          setEditingHighlightId(null);
+                          setIsAddingNoteInline(false);
+                        }}
+                        className="h-8 px-3 bg-[var(--paper-bg)] hover:bg-[var(--paper-subtle)] text-[var(--ink-primary)] border border-[var(--paper-border-strong)] rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition cursor-pointer shrink-0"
                       >
-                        <img
-                          src={book.coverUrl}
-                          alt={book.title}
-                          referrerPolicy="no-referrer"
-                          onError={(e) => handleCoverError(e, book)}
-                          className="w-full h-full object-contain group-hover:scale-102 transition-transform duration-150"
-                        />
-                        {/* Subtle bottom progress hairline */}
-                        {pct > 0 && (
-                          <div className="absolute bottom-0 left-0 right-0 h-1 bg-[var(--paper-border)]">
-                            <div
-                              className="h-full bg-[var(--ink-primary)]"
-                              style={{ width: `${Math.min(100, pct)}%` }}
-                            />
-                          </div>
-                        )}
-                      </div>
+                        <ArrowLeft size={13} />
+                        <span>All Books Notes</span>
+                      </button>
 
-                      {/* Book Metadata & Clean Unboxed Actions */}
-                      <div className="p-2.5 sm:p-3 flex-1 flex flex-col justify-between space-y-2">
-                        <div>
-                          <h4
-                            onClick={() => onOpenBook(book)}
-                            className="text-xs sm:text-[13px] font-literata font-semibold text-[var(--ink-primary)] line-clamp-1 group-hover:underline cursor-pointer leading-snug"
-                            title={book.title}
-                          >
-                            {book.title}
-                          </h4>
-                          <div className="text-[11px] text-[var(--ink-secondary)] flex items-center justify-between gap-1 mt-0.5 tabular-nums">
-                            <span className="truncate">{book.author}</span>
-                            <span className="shrink-0 font-medium text-[var(--ink-primary)]">{pct}%</span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between pt-2 border-t border-[var(--paper-border)] text-[11px]">
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => onOpenBook(book)}
-                              className="font-medium text-[var(--ink-primary)] hover:underline cursor-pointer"
-                            >
-                              Read
-                            </button>
-                            <span className="text-[var(--ink-muted)]" aria-hidden="true">
-                              ·
-                            </span>
-                            <button
-                              onClick={() => setEditingBookForStack(book)}
-                              className="text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] cursor-pointer"
-                            >
-                              Stacks
-                            </button>
-                          </div>
-
-                          <button
-                            onClick={() => setBookToDelete(book)}
-                            className="p-0.5 text-[var(--ink-muted)] hover:text-[#8B2626] rounded transition cursor-pointer"
-                            title="Delete Book"
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        </div>
+                      <div className="min-w-0">
+                        <h3 className="text-sm sm:text-base font-literata font-semibold text-[var(--ink-primary)] truncate">
+                          {selectedNotesBook.title}
+                        </h3>
+                        <p className="text-[11px] text-[var(--ink-secondary)] tabular-nums">
+                          {sortedSelectedBookHighlights.length}{' '}
+                          {sortedSelectedBookHighlights.length === 1
+                            ? 'Highlight / Note'
+                            : 'Highlights & Notes'}{' '}
+                          · Sorted by Page Number
+                        </p>
                       </div>
                     </div>
-                  );
-                })}
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => {
+                          setNewNotePage(selectedNotesBook.currentPage || 1);
+                          setIsAddingNoteInline(!isAddingNoteInline);
+                        }}
+                        className="h-8.5 px-3 bg-[var(--paper-bg)] hover:bg-[var(--paper-subtle)] text-[var(--ink-primary)] border border-[var(--paper-border-strong)] rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition cursor-pointer"
+                      >
+                        <Plus size={13} />
+                        <span>Add Note</span>
+                      </button>
+
+                      <button
+                        onClick={(e) => handleDownloadPdf(selectedNotesBook, e)}
+                        disabled={
+                          sortedSelectedBookHighlights.length === 0 ||
+                          downloadingBookId === selectedNotesBook.id
+                        }
+                        className="h-8.5 px-4 bg-[var(--ink-primary)] hover:opacity-90 disabled:opacity-40 text-[var(--ink-inverse)] rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition cursor-pointer"
+                      >
+                        <Download size={13} />
+                        <span>
+                          {downloadingBookId === selectedNotesBook.id
+                            ? 'Preparing PDF...'
+                            : 'Download PDF'}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Optional Quick Add Note Form */}
+                  {isAddingNoteInline && (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (!newNoteText.trim()) return;
+                        onAddHighlight?.(selectedNotesBook.id, {
+                          id: `hl-note-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                          pageNumber: Math.max(1, Number(newNotePage) || 1),
+                          text: '',
+                          color: '#facc15',
+                          note: newNoteText.trim(),
+                          createdAt: new Date().toISOString(),
+                        });
+                        setNewNoteText('');
+                        setIsAddingNoteInline(false);
+                      }}
+                      className="bg-[var(--paper-sheet)] border border-[var(--paper-border-strong)] rounded-xl p-4 space-y-3"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-medium text-[var(--ink-primary)]">
+                          Add Short Note to {selectedNotesBook.title}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <label className="text-[11px] text-[var(--ink-secondary)]">Page:</label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={selectedNotesBook.totalPages || 9999}
+                            value={newNotePage}
+                            onChange={(e) => setNewNotePage(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                            className="w-16 h-7 px-2 text-xs bg-[var(--paper-bg)] border border-[var(--paper-border-strong)] rounded text-[var(--ink-primary)] tabular-nums text-center focus:outline-none focus:border-[var(--ink-primary)]"
+                          />
+                        </div>
+                      </div>
+                      <textarea
+                        value={newNoteText}
+                        onChange={(e) => setNewNoteText(e.target.value)}
+                        placeholder="Write your short note for this page..."
+                        rows={2}
+                        autoFocus
+                        className="w-full p-2.5 text-xs bg-[var(--paper-bg)] border border-[var(--paper-border-strong)] rounded-lg text-[var(--ink-primary)] placeholder-[var(--ink-muted)] focus:outline-none focus:border-[var(--ink-primary)] resize-none font-literata"
+                      />
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setIsAddingNoteInline(false)}
+                          className="h-7.5 px-3 text-xs text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          className="h-7.5 px-3.5 bg-[var(--ink-primary)] text-[var(--ink-inverse)] rounded-lg text-xs font-medium cursor-pointer"
+                        >
+                          Save Note
+                        </button>
+                      </div>
+                    </form>
+                  )}
+
+                  {/* Full Paper-Ink Sheet Preview of Book Title + All Page Highlights & Notes */}
+                  {sortedSelectedBookHighlights.length === 0 ? (
+                    <div className="py-12 px-4 bg-[var(--paper-sheet)] border border-[var(--paper-border)] rounded-xl text-center space-y-3">
+                      <p className="text-sm font-literata font-medium text-[var(--ink-primary)]">
+                        No highlights or notes saved in "{selectedNotesBook.title}" yet.
+                      </p>
+                      <p className="text-xs text-[var(--ink-secondary)] max-w-md mx-auto">
+                        Open this book and select any lines to highlight or add short notes. Every highlight and note will appear here automatically in page order.
+                      </p>
+                      <div className="pt-1">
+                        <button
+                          onClick={() => onOpenBook(selectedNotesBook)}
+                          className="h-8.5 px-4 bg-[var(--ink-primary)] hover:opacity-90 text-[var(--ink-inverse)] rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition cursor-pointer"
+                        >
+                          <span>Open Book to Highlight</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-[var(--paper-sheet)] border border-[var(--paper-border-strong)] rounded-xl p-5 sm:p-8 space-y-6">
+                      {/* Single Clean Book Title Header inside the Document */}
+                      <div className="border-b border-[var(--ink-primary)] pb-3.5">
+                        <h2 className="font-literata font-bold text-base sm:text-xl text-[var(--ink-primary)] leading-snug">
+                          {selectedNotesBook.title}
+                        </h2>
+                      </div>
+
+                      {/* Ordered Page Entries */}
+                      <div className="divide-y divide-[var(--paper-border)]">
+                        {sortedSelectedBookHighlights.map((hl) => {
+                          const isEditing = editingHighlightId === hl.id;
+                          return (
+                            <div key={hl.id} className="py-4 first:pt-0 last:pb-0 space-y-2.5">
+                              {/* Page Number + Actions */}
+                              <div className="flex items-center justify-between gap-2">
+                                <button
+                                  onClick={() =>
+                                    onOpenBook({ ...selectedNotesBook, currentPage: hl.pageNumber })
+                                  }
+                                  className="text-xs font-bold text-[var(--ink-primary)] hover:underline inline-flex items-center gap-1.5 cursor-pointer tabular-nums"
+                                  title={`Open book at Page ${hl.pageNumber}`}
+                                >
+                                  <span>Page {hl.pageNumber}</span>
+                                  <ExternalLink size={11} className="text-[var(--ink-muted)]" />
+                                </button>
+
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => {
+                                      setEditingHighlightId(hl.id);
+                                      setEditingNoteText(hl.note || '');
+                                    }}
+                                    className="px-2 py-1 text-[11px] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--paper-subtle)] rounded cursor-pointer transition inline-flex items-center gap-1"
+                                  >
+                                    <Edit3 size={11} />
+                                    <span>{hl.note ? 'Edit Note' : 'Add Note'}</span>
+                                  </button>
+                                  <button
+                                    onClick={() => onDeleteHighlight?.(selectedNotesBook.id, hl.id)}
+                                    className="p-1 text-[var(--ink-muted)] hover:text-[#8B2626] hover:bg-[var(--paper-subtle)] rounded cursor-pointer transition"
+                                    title="Delete Entry"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Highlighted Lines with Clean Left Ink Bar */}
+                              {hl.text && hl.text.trim().length > 0 && (
+                                <blockquote className="pl-3.5 border-l-2 border-[var(--ink-primary)] text-xs sm:text-sm font-literata text-[var(--ink-primary)] leading-relaxed">
+                                  {hl.text}
+                                </blockquote>
+                              )}
+
+                              {/* Short Note or Inline Editor */}
+                              {isEditing ? (
+                                <div className="space-y-2 pt-1">
+                                  <textarea
+                                    value={editingNoteText}
+                                    onChange={(e) => setEditingNoteText(e.target.value)}
+                                    placeholder="Write a note for this highlight..."
+                                    rows={2}
+                                    autoFocus
+                                    className="w-full p-2.5 text-xs bg-[var(--paper-bg)] border border-[var(--paper-border-strong)] rounded-lg text-[var(--ink-primary)] focus:outline-none focus:border-[var(--ink-primary)] resize-none font-literata"
+                                  />
+                                  <div className="flex justify-end gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingHighlightId(null);
+                                        setEditingNoteText('');
+                                      }}
+                                      className="h-7 px-2.5 text-[11px] text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] cursor-pointer"
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        onUpdateHighlight?.(selectedNotesBook.id, {
+                                          ...hl,
+                                          note: editingNoteText.trim() || undefined,
+                                        });
+                                        setEditingHighlightId(null);
+                                        setEditingNoteText('');
+                                      }}
+                                      className="h-7 px-3 bg-[var(--ink-primary)] text-[var(--ink-inverse)] rounded text-[11px] font-medium inline-flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <Check size={11} />
+                                      <span>Save</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                hl.note &&
+                                hl.note.trim().length > 0 && (
+                                  <div className="text-xs text-[var(--ink-secondary)] leading-relaxed pl-3.5">
+                                    <span className="font-semibold text-[var(--ink-primary)]">
+                                      Note:{' '}
+                                    </span>
+                                    {hl.note}
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* Notes PDF Line View: All Books listed in clean horizontal rows */
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between border-b border-[var(--paper-border)] pb-2.5">
+                    <div>
+                      <h3 className="text-sm sm:text-base font-literata font-semibold text-[var(--ink-primary)]">
+                        Notes PDF Collection
+                      </h3>
+                      <p className="text-[11px] text-[var(--ink-secondary)] mt-0.5">
+                        Click on any book name below to view all its page-wise highlights and notes, or download its Notes PDF directly.
+                      </p>
+                    </div>
+                    <span className="text-xs text-[var(--ink-secondary)] tabular-nums shrink-0">
+                      {notesPdfBooks.length} {notesPdfBooks.length === 1 ? 'Book' : 'Books'}
+                    </span>
+                  </div>
+
+                  {notesPdfBooks.length === 0 ? (
+                    <div className="py-12 px-4 bg-[var(--paper-sheet)] border border-[var(--paper-border)] rounded-xl text-center space-y-2">
+                      <p className="text-xs text-[var(--ink-secondary)]">
+                        No books found in your library.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="bg-[var(--paper-sheet)] border border-[var(--paper-border)] rounded-xl divide-y divide-[var(--paper-border)] overflow-hidden">
+                      {notesPdfBooks.map((book) => {
+                        const notesCount = book.highlights?.length || 0;
+                        const isDownloading = downloadingBookId === book.id;
+
+                        return (
+                          <div
+                            key={book.id}
+                            onClick={() => setSelectedNotesBookId(book.id)}
+                            className="px-4 sm:px-5 py-3.5 hover:bg-[var(--paper-subtle)] transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer group"
+                          >
+                            {/* Left: Book Icon + Book Name & Metadata in Line View */}
+                            <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                              <div className="w-8 h-8 rounded-lg bg-[var(--paper-bg)] border border-[var(--paper-border-strong)] flex items-center justify-center shrink-0 text-[var(--ink-primary)]">
+                                <FileText size={15} />
+                              </div>
+
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <h4 className="text-xs sm:text-sm font-literata font-semibold text-[var(--ink-primary)] group-hover:underline truncate">
+                                    {book.title}
+                                  </h4>
+                                </div>
+                                <div className="text-[11px] text-[var(--ink-secondary)] flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5 tabular-nums">
+                                  <span>{book.author}</span>
+                                  <span aria-hidden="true">·</span>
+                                  <span
+                                    className={
+                                      notesCount > 0
+                                        ? 'font-medium text-[var(--ink-primary)]'
+                                        : 'text-[var(--ink-muted)]'
+                                    }
+                                  >
+                                    {notesCount}{' '}
+                                    {notesCount === 1 ? 'Highlight / Note' : 'Highlights & Notes'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Right: View Notes & Download PDF Actions */}
+                            <div className="flex items-center justify-end gap-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedNotesBookId(book.id);
+                                }}
+                                className="h-8 px-3 bg-[var(--paper-bg)] hover:bg-[var(--paper-sheet)] text-[var(--ink-primary)] border border-[var(--paper-border-strong)] rounded-lg text-xs font-medium inline-flex items-center gap-1 transition cursor-pointer"
+                              >
+                                <span>Open Notes</span>
+                                <ChevronRight size={13} />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={(e) => handleDownloadPdf(book, e)}
+                                disabled={notesCount === 0 || isDownloading}
+                                className="h-8 px-3.5 bg-[var(--ink-primary)] hover:opacity-90 disabled:opacity-35 text-[var(--ink-inverse)] rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition cursor-pointer"
+                                title={
+                                  notesCount === 0
+                                    ? 'No highlights or notes in this book yet'
+                                    : 'Download Notes PDF'
+                                }
+                              >
+                                <Download size={12} />
+                                <span>{isDownloading ? 'Downloading...' : 'Download PDF'}</span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+          ) : (
+            /* Standard Library Book Collection Grid (No Notes PDF items mixed in) */
+            <section className="space-y-4 pb-6">
+              <div className="flex items-center justify-between border-b border-[var(--paper-border)] pb-2.5">
+                <h3 className="text-sm sm:text-base font-literata font-semibold text-[var(--ink-primary)]">
+                  {selectedStackFilter
+                    ? stacks.find((s) => s.id === selectedStackFilter)?.name || 'Library'
+                    : 'Library'}
+                </h3>
+                <span className="text-xs text-[var(--ink-secondary)] tabular-nums">
+                  {filteredBooks.length} {filteredBooks.length === 1 ? 'Volume' : 'Volumes'}
+                </span>
               </div>
-            )}
-          </section>
+
+              {books.length === 0 ? (
+                <div className="py-14 px-4 bg-[var(--paper-sheet)] border border-[var(--paper-border)] rounded-xl text-center space-y-3">
+                  <p className="text-sm font-literata font-medium text-[var(--ink-primary)]">
+                    Your bookshelf is currently empty.
+                  </p>
+                  <p className="text-xs text-[var(--ink-secondary)] max-w-md mx-auto">
+                    Upload a PDF document or import from Google Drive to experience crisp Paper-Ink reading across all your devices.
+                  </p>
+                  <div className="pt-1">
+                    <button
+                      onClick={onOpenUploadModal}
+                      className="h-8.5 px-4 bg-[var(--ink-primary)] hover:opacity-90 text-[var(--ink-inverse)] rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition cursor-pointer"
+                    >
+                      <Upload size={12} />
+                      <span>Upload PDF</span>
+                    </button>
+                  </div>
+                </div>
+              ) : filteredBooks.length === 0 ? (
+                <div className="py-12 bg-[var(--paper-sheet)] border border-[var(--paper-border)] rounded-xl text-center space-y-2.5">
+                  <p className="text-xs text-[var(--ink-secondary)]">No books match the current filter.</p>
+                  <button
+                    onClick={() => {
+                      setSearchQuery('');
+                      setSelectedStackFilter(null);
+                      setFilterSource('all');
+                    }}
+                    className="h-7.5 px-3.5 bg-[var(--ink-primary)] text-[var(--ink-inverse)] rounded-lg text-xs font-medium cursor-pointer"
+                  >
+                    Reset Filters
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3.5 sm:gap-4">
+                  {filteredBooks.map((book) => {
+                    const pct =
+                      book.progressPercent ??
+                      Math.round((book.currentPage / Math.max(1, book.totalPages)) * 100);
+
+                    return (
+                      <div
+                        key={book.id}
+                        className="flex flex-col group bg-[var(--paper-sheet)] rounded-xl border border-[var(--paper-border)] hover:border-[var(--ink-primary)] transition duration-150 overflow-hidden"
+                      >
+                        {/* Full Book Cover Matte Frame */}
+                        <div
+                          onClick={() => onOpenBook(book)}
+                          className="relative aspect-[3/4] w-full bg-[var(--paper-subtle)] flex items-center justify-center p-2.5 overflow-hidden cursor-pointer border-b border-[var(--paper-border)]"
+                        >
+                          <img
+                            src={book.coverUrl}
+                            alt={book.title}
+                            referrerPolicy="no-referrer"
+                            onError={(e) => handleCoverError(e, book)}
+                            className="w-full h-full object-contain group-hover:scale-102 transition-transform duration-150"
+                          />
+                          {/* Subtle bottom progress hairline */}
+                          {pct > 0 && (
+                            <div className="absolute bottom-0 left-0 right-0 h-1 bg-[var(--paper-border)]">
+                              <div
+                                className="h-full bg-[var(--ink-primary)]"
+                                style={{ width: `${Math.min(100, pct)}%` }}
+                              />
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Book Metadata & Clean Unboxed Actions */}
+                        <div className="p-2.5 sm:p-3 flex-1 flex flex-col justify-between space-y-2">
+                          <div>
+                            <h4
+                              onClick={() => onOpenBook(book)}
+                              className="text-xs sm:text-[13px] font-literata font-semibold text-[var(--ink-primary)] line-clamp-1 group-hover:underline cursor-pointer leading-snug"
+                              title={book.title}
+                            >
+                              {book.title}
+                            </h4>
+                            <div className="text-[11px] text-[var(--ink-secondary)] flex items-center justify-between gap-1 mt-0.5 tabular-nums">
+                              <span className="truncate">{book.author}</span>
+                              <span className="shrink-0 font-medium text-[var(--ink-primary)]">{pct}%</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-2 border-t border-[var(--paper-border)] text-[11px]">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <button
+                                onClick={() => onOpenBook(book)}
+                                className="font-medium text-[var(--ink-primary)] hover:underline cursor-pointer"
+                              >
+                                Read
+                              </button>
+                              <span className="text-[var(--ink-muted)]" aria-hidden="true">
+                                ·
+                              </span>
+                              <button
+                                onClick={() => setEditingBookForStack(book)}
+                                className="text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] cursor-pointer"
+                              >
+                                Stacks
+                              </button>
+                            </div>
+
+                            <button
+                              onClick={() => setBookToDelete(book)}
+                              className="p-0.5 text-[var(--ink-muted)] hover:text-[#8B2626] rounded transition cursor-pointer"
+                              title="Delete Book"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          )}
         </div>
       </div>
 

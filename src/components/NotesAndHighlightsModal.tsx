@@ -1,28 +1,31 @@
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
 import {
-  Highlighter,
-  MessageSquare,
   Trash2,
   X,
   Search,
   ExternalLink,
-  BookOpen,
-  Filter,
+  Download,
+  BookmarkCheck,
+  Plus,
+  FileEdit,
+  Check,
 } from 'lucide-react';
 import { Book, Highlight } from '../types';
 import { HIGHLIGHT_COLORS } from './AnnotationToolbar';
+import { downloadBookNotesPdf } from '../utils/pdfGenerator';
 
 interface NotesAndHighlightsModalProps {
   isOpen: boolean;
   onClose: () => void;
   book?: Book;
   bookTitle?: string;
+  currentPage?: number;
   highlights?: Highlight[];
-  onJumpToPage: (page: number) => void;
+  onJumpToPage?: (page: number) => void;
   onDeleteHighlight: (highlightId: string) => void;
   onEditHighlight?: (highlight: Highlight) => void;
-  isDarkTheme?: boolean;
+  onAddStandaloneNote?: (pageNumber: number, noteText: string) => void;
+  onSaveNotesPdfToLibrary?: (book: Book) => Promise<void> | void;
 }
 
 export const NotesAndHighlightsModal: React.FC<NotesAndHighlightsModalProps> = ({
@@ -30,14 +33,22 @@ export const NotesAndHighlightsModal: React.FC<NotesAndHighlightsModalProps> = (
   onClose,
   book,
   bookTitle,
+  currentPage = 1,
   highlights: propHighlights,
   onJumpToPage,
   onDeleteHighlight,
   onEditHighlight,
-  isDarkTheme = true,
+  onAddStandaloneNote,
+  onSaveNotesPdfToLibrary,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [colorFilter, setColorFilter] = useState<string>('all');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingNoteVal, setEditingNoteVal] = useState<string>('');
+  const [newQuickNote, setNewQuickNote] = useState<string>('');
+  const [newQuickNotePage, setNewQuickNotePage] = useState<string>(`${currentPage || 1}`);
+  const [isSavingToLibrary, setIsSavingToLibrary] = useState<boolean>(false);
+  const [savedLibrarySuccess, setSavedLibrarySuccess] = useState<boolean>(false);
 
   if (!isOpen) return null;
 
@@ -47,163 +58,345 @@ export const NotesAndHighlightsModal: React.FC<NotesAndHighlightsModalProps> = (
   const filteredHighlights = highlights.filter((h) => {
     const matchesSearch =
       (h.text || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (h.note && h.note.toLowerCase().includes(searchQuery.toLowerCase()));
-    const matchesColor = colorFilter === 'all' || (h.color || '').toLowerCase() === colorFilter.toLowerCase();
+      (h.note && h.note.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      `page ${h.pageNumber}`.includes(searchQuery.toLowerCase().trim());
+    const matchesColor =
+      colorFilter === 'all' || (h.color || '').toLowerCase() === colorFilter.toLowerCase();
     return matchesSearch && matchesColor;
   });
 
-  // Sort by page number ascending
-  filteredHighlights.sort((a, b) => (a.pageNumber || 0) - (b.pageNumber || 0));
+  // Sort by page number ascending so the Short Notes PDF flows in book order
+  filteredHighlights.sort((a, b) => {
+    const pDiff = (a.pageNumber || 1) - (b.pageNumber || 1);
+    if (pDiff !== 0) return pDiff;
+    return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+  });
+
+  const handleStartEdit = (h: Highlight) => {
+    setEditingId(h.id);
+    setEditingNoteVal(h.note || '');
+  };
+
+  const handleSaveInlineNote = (h: Highlight) => {
+    if (onEditHighlight) {
+      onEditHighlight({
+        ...h,
+        note: editingNoteVal.trim() || undefined,
+      });
+    }
+    setEditingId(null);
+    setEditingNoteVal('');
+  };
+
+  const handleQuickNoteSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = newQuickNote.trim();
+    if (!trimmed) return;
+    const maxPages = Math.max(1, book?.totalPages || 9999);
+    const parsedPage = Math.max(
+      1,
+      Math.min(maxPages, parseInt(newQuickNotePage, 10) || currentPage || 1)
+    );
+
+    if (onAddStandaloneNote) {
+      onAddStandaloneNote(parsedPage, trimmed);
+    } else if (onEditHighlight) {
+      onEditHighlight({
+        id: `hl-note-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        pageNumber: parsedPage,
+        text: '',
+        color: '#facc15',
+        note: trimmed,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    setNewQuickNote('');
+  };
+
+  const handleDownloadPdf = () => {
+    if (!book) return;
+    downloadBookNotesPdf({
+      ...book,
+      highlights,
+    });
+  };
+
+  const handleSaveToBookshelf = async () => {
+    if (!book || !onSaveNotesPdfToLibrary) return;
+    try {
+      setIsSavingToLibrary(true);
+      await onSaveNotesPdfToLibrary({
+        ...book,
+        highlights,
+      });
+      setSavedLibrarySuccess(true);
+      setTimeout(() => setSavedLibrarySuccess(false), 2600);
+    } finally {
+      setIsSavingToLibrary(false);
+    }
+  };
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-xs animate-in fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/55 backdrop-blur-xs font-sans"
       onClick={onClose}
     >
-      <motion.div
-        initial={{ scale: 0.95, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.95, opacity: 0 }}
+      <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-2xl bg-stone-900 border border-stone-700 text-stone-100 rounded-2xl shadow-2xl p-4 sm:p-6 flex flex-col gap-4 font-sans max-h-[88vh]"
+        className="w-full max-w-2xl bg-[var(--paper-sheet)] border border-[var(--paper-border-strong)] text-[var(--ink-primary)] rounded-xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
       >
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-stone-800 pb-3 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-stone-800 text-white flex items-center justify-center border border-stone-700">
-              <Highlighter size={16} />
-            </div>
-            <div>
-              <h2 className="text-base font-bold flex items-center gap-2 text-white">
-                <span>Notes & Highlights</span>
-                <span className="text-xs font-mono font-normal px-2 py-0.5 rounded-full bg-stone-800 text-stone-300 border border-stone-700">
-                  {highlights.length}
-                </span>
+        {/* Top Paper-Ink Header */}
+        <div className="px-4 sm:px-6 py-3.5 bg-[var(--paper-bg)] border-b border-[var(--paper-border)] flex items-center justify-between gap-3 shrink-0">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm sm:text-base font-literata font-semibold text-[var(--ink-primary)] truncate">
+                Short Notes & Highlights PDF
               </h2>
-              <p className="text-[11px] text-stone-400 truncate max-w-sm">{displayTitle}</p>
+              <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-[var(--paper-sheet)] text-[var(--ink-primary)] border border-[var(--paper-border-strong)] shrink-0 tabular-nums">
+                {highlights.length} {highlights.length === 1 ? 'Entry' : 'Entries'}
+              </span>
             </div>
+            <p className="text-[11px] text-[var(--ink-secondary)] truncate mt-0.5">
+              {displayTitle} · Auto-compiled by Page Number
+            </p>
           </div>
+
           <button
             onClick={onClose}
-            className="p-1.5 hover:bg-stone-800 rounded-full text-stone-400 hover:text-white transition cursor-pointer"
+            className="p-1.5 hover:bg-[var(--paper-subtle)] rounded-lg text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] transition cursor-pointer shrink-0"
+            aria-label="Close"
           >
-            <X size={18} />
+            <X size={16} />
           </button>
         </div>
 
-        {/* Search & Filter Bar */}
-        <div className="flex flex-col sm:flex-row items-center gap-2 shrink-0">
-          <div className="relative flex-1 w-full">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+        {/* Add Quick Short Note Bar + Search/Filter */}
+        <div className="px-4 sm:px-6 py-3 bg-[var(--paper-bg)]/60 border-b border-[var(--paper-border)] space-y-2.5 shrink-0">
+          {/* Quick Short Note Input */}
+          <form onSubmit={handleQuickNoteSubmit} className="flex items-center gap-2">
+            <div className="flex items-center gap-1 bg-[var(--paper-sheet)] border border-[var(--paper-border-strong)] rounded-lg px-2.5 h-8 shrink-0 text-xs">
+              <span className="text-[var(--ink-secondary)] text-[11px]">Page</span>
+              <input
+                type="number"
+                min={1}
+                max={book?.totalPages || 9999}
+                value={newQuickNotePage}
+                onChange={(e) => setNewQuickNotePage(e.target.value)}
+                className="w-11 text-center font-mono text-xs font-semibold text-[var(--ink-primary)] bg-transparent focus:outline-none tabular-nums"
+              />
+            </div>
+
             <input
               type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search highlights and notes..."
-              className="w-full bg-stone-950 border border-stone-700 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-white"
+              value={newQuickNote}
+              onChange={(e) => setNewQuickNote(e.target.value)}
+              placeholder="Write a short note for this page to include in your Notes PDF..."
+              className="flex-1 h-8 px-3 text-xs bg-[var(--paper-sheet)] border border-[var(--paper-border-strong)] focus:border-[var(--ink-primary)] rounded-lg text-[var(--ink-primary)] placeholder-[var(--ink-muted)] focus:outline-none"
             />
-          </div>
 
-          {/* Color Filter Swatches */}
-          <div className="flex items-center gap-1.5 self-start sm:self-auto bg-stone-950 p-1 rounded-xl border border-stone-800">
             <button
-              onClick={() => setColorFilter('all')}
-              className={`px-2 py-0.5 text-[10px] font-semibold rounded-lg transition cursor-pointer ${
-                colorFilter === 'all' ? 'bg-white text-black font-bold' : 'text-stone-400 hover:text-white'
-              }`}
+              type="submit"
+              disabled={!newQuickNote.trim()}
+              className="h-8 px-3 bg-[var(--ink-primary)] disabled:opacity-40 text-[var(--ink-inverse)] rounded-lg text-xs font-medium flex items-center gap-1 transition cursor-pointer shrink-0"
             >
-              All
+              <Plus size={12} />
+              <span>Add Note</span>
             </button>
-            {HIGHLIGHT_COLORS.map((c) => (
-              <button
-                key={c.id}
-                onClick={() => setColorFilter(c.hex)}
-                className={`w-4.5 h-4.5 rounded-full transition-transform cursor-pointer ${
-                  colorFilter.toLowerCase() === c.hex.toLowerCase() ? 'ring-2 ring-white scale-110' : 'opacity-70 hover:opacity-100'
-                }`}
-                style={{ backgroundColor: c.hex }}
-                title={`Filter ${c.name}`}
-              />
-            ))}
-          </div>
+          </form>
+
+          {/* Search & Color Filter */}
+          {highlights.length > 0 && (
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+              <div className="relative flex-1">
+                <Search
+                  size={12}
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--ink-muted)]"
+                />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search by page number, highlighted text, or short note..."
+                  className="w-full h-7.5 pl-7.5 pr-3 text-xs bg-[var(--paper-sheet)] border border-[var(--paper-border-strong)] rounded-lg text-[var(--ink-primary)] placeholder-[var(--ink-muted)] focus:outline-none focus:border-[var(--ink-primary)]"
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5 bg-[var(--paper-sheet)] px-2 py-1 rounded-lg border border-[var(--paper-border-strong)] self-start sm:self-auto">
+                <button
+                  onClick={() => setColorFilter('all')}
+                  className={`px-2 py-0.5 text-[10px] font-medium rounded transition cursor-pointer ${
+                    colorFilter === 'all'
+                      ? 'bg-[var(--ink-primary)] text-[var(--ink-inverse)]'
+                      : 'text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]'
+                  }`}
+                >
+                  All
+                </button>
+                {HIGHLIGHT_COLORS.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => setColorFilter(c.hex)}
+                    className={`w-4 h-4 rounded-full transition-transform cursor-pointer ${
+                      colorFilter.toLowerCase() === c.hex.toLowerCase()
+                        ? 'ring-2 ring-[var(--ink-primary)] scale-110'
+                        : 'opacity-75 hover:opacity-100'
+                    }`}
+                    style={{ backgroundColor: c.hex }}
+                    title={c.name}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Highlights List */}
-        <div className="flex-1 overflow-y-auto pr-1 space-y-3 min-h-[180px]">
+        {/* Compiled Short Notes & Highlights Sheet List */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3 min-h-[220px]">
           {filteredHighlights.length === 0 ? (
-            <div className="h-44 flex flex-col items-center justify-center text-center space-y-2 text-stone-400">
-              <BookOpen size={28} className="opacity-30" />
-              <p className="text-xs">
+            <div className="h-44 flex flex-col items-center justify-center text-center space-y-2 text-[var(--ink-secondary)] bg-[var(--paper-bg)]/50 border border-dashed border-[var(--paper-border-strong)] rounded-xl p-6">
+              <p className="text-xs font-literata font-medium text-[var(--ink-primary)]">
                 {highlights.length === 0
-                  ? 'No highlights or notes yet. Long-press or select text while reading to add one!'
-                  : 'No annotations match your search query.'}
+                  ? 'Your Short Notes & Highlights PDF is empty.'
+                  : 'No entries match your search.'}
+              </p>
+              <p className="text-[11px] text-[var(--ink-secondary)] max-w-md">
+                {highlights.length === 0
+                  ? 'Select any sentence while reading to highlight it or attach a note. Every highlight and note is automatically recorded here with its page number and compiled into your downloadable Notes PDF.'
+                  : 'Try clearing the search box or selecting All colors.'}
               </p>
             </div>
           ) : (
             filteredHighlights.map((h) => {
+              const hasQuote = Boolean(h.text && h.text.trim());
+              const hasNote = Boolean(h.note && h.note.trim());
+              const isEditingThis = editingId === h.id;
+
               return (
                 <div
                   key={h.id}
-                  className="bg-stone-950/70 border border-stone-800 rounded-xl p-3.5 space-y-2.5 transition hover:border-stone-700 relative group"
+                  className="bg-[var(--paper-bg)] border border-[var(--paper-border-strong)] rounded-xl p-3.5 sm:p-4 space-y-2.5 transition"
                 >
-                  {/* Top: Page and Action Buttons */}
-                  <div className="flex items-center justify-between text-xs">
-                    <button
-                      onClick={() => {
-                        onJumpToPage(h.pageNumber);
-                        onClose();
-                      }}
-                      className="flex items-center gap-1.5 text-white hover:text-stone-300 font-mono font-bold hover:underline cursor-pointer"
-                    >
-                      <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: h.color }} />
-                      <span>Page {h.pageNumber}</span>
-                      <ExternalLink size={11} className="opacity-70" />
-                    </button>
+                  {/* Entry Header: Page Number shown once */}
+                  <div className="flex items-center justify-between gap-2 border-b border-[var(--paper-border)] pb-2 text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full shrink-0 border border-black/20"
+                        style={{ backgroundColor: h.color || '#facc15' }}
+                      />
+                      {onJumpToPage ? (
+                        <button
+                          onClick={() => {
+                            onJumpToPage(h.pageNumber);
+                            onClose();
+                          }}
+                          className="inline-flex items-center gap-1.5 font-semibold text-xs text-[var(--ink-primary)] hover:underline cursor-pointer"
+                        >
+                          <span>Page {h.pageNumber}</span>
+                          <ExternalLink size={11} className="opacity-70" />
+                        </button>
+                      ) : (
+                        <span className="font-semibold text-xs text-[var(--ink-primary)]">
+                          Page {h.pageNumber}
+                        </span>
+                      )}
+                    </div>
 
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-stone-500">
-                        {new Date(h.createdAt).toLocaleDateString()}
-                      </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => handleStartEdit(h)}
+                        className="px-2 py-1 text-[11px] font-medium text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--paper-subtle)] rounded-md flex items-center gap-1 transition cursor-pointer"
+                      >
+                        <FileEdit size={11} />
+                        <span>{hasNote ? 'Edit Note' : 'Add Note'}</span>
+                      </button>
+
                       <button
                         onClick={() => onDeleteHighlight(h.id)}
-                        className="p-1 text-stone-500 hover:text-stone-200 hover:bg-stone-800 rounded transition cursor-pointer"
-                        title="Delete highlight"
+                        className="p-1 text-[var(--ink-muted)] hover:text-[#8B2626] hover:bg-[var(--paper-subtle)] rounded-md transition cursor-pointer"
+                        title="Delete entry"
                       >
                         <Trash2 size={13} />
                       </button>
                     </div>
                   </div>
 
-                  {/* Quoted Text */}
-                  <div
-                    className="p-2.5 rounded-lg text-xs font-serif leading-relaxed italic border-l-2"
-                    style={{
-                      backgroundColor: `${h.color}15`,
-                      borderLeftColor: h.color,
-                      color: '#f3f4f6',
-                    }}
-                  >
-                    “{h.text}”
-                  </div>
+                  {/* Highlighted Lines */}
+                  {hasQuote && (
+                    <div
+                      className="p-3 rounded-lg text-xs font-literata leading-relaxed border-l-3 bg-[var(--paper-sheet)] text-[var(--ink-primary)] italic"
+                      style={{
+                        borderLeftColor: h.color || '#facc15',
+                      }}
+                    >
+                      “{h.text}”
+                    </div>
+                  )}
 
-                  {/* Attached Note if present */}
-                  {h.note && (
-                    <div className="flex items-start gap-2 bg-stone-900/90 rounded-lg p-2.5 border border-stone-800 text-xs text-stone-200">
-                      <MessageSquare size={13} className="text-stone-400 shrink-0 mt-0.5" />
-                      <div className="space-y-0.5">
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-stone-400">
-                          Your Note
-                        </div>
-                        <p className="leading-relaxed font-sans text-stone-300">{h.note}</p>
+                  {/* Note Display or Inline Editor */}
+                  {isEditingThis ? (
+                    <div className="space-y-2 pt-1">
+                      <textarea
+                        value={editingNoteVal}
+                        onChange={(e) => setEditingNoteVal(e.target.value)}
+                        placeholder={`Write your note for Page ${h.pageNumber}...`}
+                        rows={2}
+                        autoFocus
+                        className="w-full p-2.5 text-xs bg-[var(--paper-sheet)] border border-[var(--ink-primary)] rounded-lg text-[var(--ink-primary)] focus:outline-none leading-relaxed"
+                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingId(null)}
+                          className="px-3 py-1 text-xs text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] rounded-md cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveInlineNote(h)}
+                          className="px-3 py-1 text-xs font-medium bg-[var(--ink-primary)] text-[var(--ink-inverse)] rounded-md cursor-pointer"
+                        >
+                          Save Note
+                        </button>
                       </div>
                     </div>
+                  ) : (
+                    hasNote && (
+                      <div className="bg-[var(--paper-sheet)] rounded-lg p-3 border border-[var(--paper-border)] text-xs text-[var(--ink-primary)] leading-relaxed whitespace-pre-wrap">
+                        <strong className="font-semibold text-[var(--ink-secondary)] mr-1.5">
+                          Note:
+                        </strong>
+                        {h.note}
+                      </div>
+                    )
                   )}
                 </div>
               );
             })
           )}
         </div>
-      </motion.div>
+
+        {/* Footer: Download Notes PDF */}
+        <div className="px-4 sm:px-6 py-3.5 bg-[var(--paper-bg)] border-t border-[var(--paper-border)] flex flex-wrap items-center justify-between gap-2.5 shrink-0">
+          <div className="text-[11px] text-[var(--ink-secondary)]">
+            Automatically saved in your dashboard’s <strong>Notes PDF</strong> section.
+          </div>
+
+          <div className="flex items-center gap-2 ml-auto">
+            {book && (
+              <button
+                type="button"
+                disabled={highlights.length === 0}
+                onClick={handleDownloadPdf}
+                className="h-8.5 px-4 bg-[var(--ink-primary)] hover:opacity-90 disabled:opacity-45 text-[var(--ink-inverse)] rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <Download size={13} />
+                <span>Download PDF</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

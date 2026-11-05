@@ -42,6 +42,7 @@ interface ReadingInterfaceProps {
   onChangeReadingMode?: (bookId: string, mode: PdfReadingMode) => void;
   eyeProtection?: EyeProtectionSettings;
   onChangeEyeProtection?: (settings: EyeProtectionSettings) => void;
+  onSaveNotesPdfToLibrary?: (book: Book) => Promise<void> | void;
 }
 
 const THEME_CONFIGS: Record<
@@ -133,6 +134,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
   onChangeReadingMode,
   eyeProtection,
   onChangeEyeProtection,
+  onSaveNotesPdfToLibrary,
 }) => {
   const [currentPage, setCurrentPage] = useState<number>(book.currentPage || 1);
   const [totalPages, setTotalPages] = useState<number>(Math.max(1, book.totalPages || 1));
@@ -2119,6 +2121,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
         onClose={() => setIsNotesModalOpen(false)}
         book={book}
         bookTitle={book.title}
+        currentPage={currentPage}
         highlights={book.highlights || []}
         onJumpToPage={(pageNum) => {
           setCurrentPage(pageNum);
@@ -2126,6 +2129,18 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
         }}
         onDeleteHighlight={handleDeleteHighlightInternal}
         onEditHighlight={handleUpdateHighlightInternal}
+        onAddStandaloneNote={(pageNum, noteText) => {
+          const newHl: Highlight = {
+            id: `hl-note-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            pageNumber: pageNum,
+            text: '',
+            color: '#facc15',
+            note: noteText,
+            createdAt: new Date().toISOString(),
+          };
+          onAddHighlight(book.id, newHl);
+        }}
+        onSaveNotesPdfToLibrary={onSaveNotesPdfToLibrary}
       />
     </div>
   );
