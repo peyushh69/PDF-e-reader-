@@ -226,7 +226,7 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
             {/* Direct Highlight Color Palette Bar */}
             <div className="flex items-center justify-between px-2 py-1.5 bg-stone-900 rounded-xl">
               <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider mr-1">
-                Colors:
+                Highlight:
               </span>
               <div className="flex items-center gap-1.5">
                 {HIGHLIGHT_COLORS.map((c) => {
@@ -253,23 +253,7 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
 
             {/* Primary Action Buttons Bar */}
             <div className="flex items-center justify-between px-1 py-0.5 text-xs">
-              {/* 1. Quick Highlight in Current Color */}
-              <button
-                onClick={() => handleApplyHighlight(activeColor || '#facc15')}
-                onMouseDown={(e) => e.preventDefault()}
-                className="flex-1 flex items-center justify-center gap-1.5 py-1 px-1.5 rounded-lg transition hover:bg-stone-800 active:scale-95 cursor-pointer"
-                title="Highlight text"
-              >
-                <div
-                  className="w-3.5 h-3.5 rounded-full border border-stone-600 shadow-xs"
-                  style={{ backgroundColor: activeColor || '#facc15' }}
-                />
-                <span className="text-[11px] font-medium text-stone-200">Highlight</span>
-              </button>
-
-              <div className="w-px h-5 bg-stone-800 mx-1" />
-
-              {/* 2. Note Button */}
+              {/* 1. Note Button */}
               <button
                 onClick={handleOpenNoteEditor}
                 onMouseDown={(e) => e.preventDefault()}

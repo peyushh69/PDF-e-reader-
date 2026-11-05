@@ -947,16 +947,11 @@ export default function App() {
   };
 
   return (
-    <DeviceFrame eyeProtection={eyeProtection}>
+    <DeviceFrame eyeProtection={eyeProtection} readingTheme={readingTheme}>
       {authLoading ? (
-        <div className="flex-1 flex flex-col items-center justify-center p-6 bg-[#DBD9D3] text-[#2B2A27] font-sans gap-3">
-          <img
-            src="/pwa-192x192.png"
-            alt="Bookshelf Logo"
-            className="w-10 h-10 rounded-xl object-cover border border-[#6E6C66]"
-          />
-          <BookshelfWordmark className="h-[14px] w-auto" />
-          <span className="text-xs text-[#575550]">Loading your bookshelf...</span>
+        <div className="flex-1 flex flex-col items-center justify-center p-6 bg-[var(--paper-bg)] text-[var(--ink-primary)] font-sans gap-3">
+          <BookshelfWordmark className="text-2xl" />
+          <span className="text-xs text-[var(--ink-secondary)]">Loading your bookshelf...</span>
         </div>
       ) : !user ? (
         <LoginView onFallbackSignIn={handleFallbackSignIn} />
@@ -996,10 +991,10 @@ export default function App() {
           onChangeEyeProtection={setEyeProtection}
         />
       ) : (
-        <div className="flex-1 flex items-center justify-center p-8 bg-[#DBD9D3]">
+        <div className="flex-1 flex items-center justify-center p-8 bg-[var(--paper-bg)]">
           <button
             onClick={() => setCurrentView('dashboard')}
-            className="px-4 py-2 bg-[#3A3834] text-[#EAE8E2] border border-[#2B2A27] rounded-lg text-xs font-medium cursor-pointer"
+            className="px-4 py-2 bg-[var(--ink-primary)] text-[var(--ink-inverse)] rounded-lg text-xs font-medium cursor-pointer"
           >
             Back to Library
           </button>

@@ -171,6 +171,22 @@ function horizontalIntervalsOverlap(
 function buildLineGroupText(line: LineGroup): void {
   line.items.sort((a, b) => a.x - b.x);
 
+  // Deduplicate overlapping identical PDF text items (e.g. faux-bold or drop-shadow text operators)
+  const dedupedItems: RawTextItem[] = [];
+  for (const item of line.items) {
+    const prev = dedupedItems[dedupedItems.length - 1];
+    if (
+      prev &&
+      prev.str.trim() === item.str.trim() &&
+      Math.abs(item.x - prev.x) <= Math.max(2.5, item.fontSize * 0.25)
+    ) {
+      prev.isBold = true;
+      continue;
+    }
+    dedupedItems.push(item);
+  }
+  line.items = dedupedItems;
+
   let linePlainText = '';
   let lineRichText = '';
   let currentSpanText = '';

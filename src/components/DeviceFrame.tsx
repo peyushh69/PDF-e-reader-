@@ -1,9 +1,10 @@
-import React from 'react';
-import { EyeProtectionSettings } from '../types';
+import React, { useEffect } from 'react';
+import { EyeProtectionSettings, ThemeMode } from '../types';
 
 interface DeviceFrameProps {
   children: React.ReactNode;
   eyeProtection?: EyeProtectionSettings;
+  readingTheme?: ThemeMode;
 }
 
 export const DeviceFrame: React.FC<DeviceFrameProps> = ({
@@ -15,28 +16,57 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({
     blueLightFilter: true,
     preset: 'afternoon',
   },
+  readingTheme = 'light',
 }) => {
-  // Optical Warm Light Calculation (0-24 scale) for soft matte e-ink comfort
-  const warmthOpacity = eyeProtection.enabled ? (eyeProtection.warmth / 24) * 0.2 : 0;
-  const brightnessMultiplier = 0.86 + (eyeProtection.brightness / 24) * 0.14; // 0.86 to 1.00 (never overly bright)
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('data-paper-theme', readingTheme);
+    }
+  }, [readingTheme]);
+
+  // Only apply warmth & brightness optical filters when Eye Comfort is actively enabled
+  const warmthOpacity = eyeProtection.enabled ? (eyeProtection.warmth / 24) * 0.18 : 0;
+  const brightnessMultiplier = eyeProtection.enabled
+    ? 0.88 + (eyeProtection.brightness / 24) * 0.12
+    : 1.0;
 
   return (
-    <div className="relative w-full h-screen flex flex-col bg-[#DBD9D3] text-[#2B2A27] overflow-hidden font-sans antialiased">
+    <div
+      data-paper-theme={readingTheme}
+      className="relative w-full h-screen flex flex-col bg-[var(--paper-bg)] text-[var(--ink-primary)] overflow-hidden font-sans antialiased transition-colors duration-200"
+    >
       {/* Main Full-Screen App Content */}
       <div
         className="w-full h-full flex flex-col relative overflow-hidden"
         style={{
-          filter: `brightness(${brightnessMultiplier})`,
+          filter: brightnessMultiplier < 0.999 ? `brightness(${brightnessMultiplier})` : undefined,
         }}
       >
         {children}
 
-        {/* Dynamic Warm Light (Eye Protection) Amber Glow Overlay using pure multiply tint */}
+        {/* Subtle Matte E-Ink Paper Fiber Micro-Grain Overlay */}
+        <svg
+          className="pointer-events-none fixed inset-0 w-full h-full z-25 opacity-[0.026]"
+          aria-hidden="true"
+        >
+          <filter id="eink-paper-fiber">
+            <feTurbulence
+              type="fractalNoise"
+              baseFrequency="0.82"
+              numOctaves="3"
+              stitchTiles="stitch"
+            />
+            <feColorMatrix type="saturate" values="0" />
+          </filter>
+          <rect width="100%" height="100%" filter="url(#eink-paper-fiber)" />
+        </svg>
+
+        {/* Dynamic Warm Light (Eye Protection) Frontlight Overlay */}
         {eyeProtection.enabled && eyeProtection.warmth > 0 && (
           <div
             className="absolute inset-0 pointer-events-none z-30 transition-opacity duration-300 mix-blend-multiply"
             style={{
-              backgroundColor: `rgba(245, 195, 120, ${warmthOpacity})`,
+              backgroundColor: `rgba(244, 194, 118, ${warmthOpacity})`,
             }}
             aria-hidden="true"
           />
@@ -45,5 +75,3 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({
     </div>
   );
 };
-
-

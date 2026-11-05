@@ -83,33 +83,23 @@ export const LoginView: React.FC<LoginViewProps> = ({ onFallbackSignIn }) => {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#DBD9D3] text-[#2B2A27] font-sans select-none antialiased overflow-y-auto">
+    <div className="flex-1 flex flex-col h-full bg-[var(--paper-bg)] text-[var(--ink-primary)] font-sans select-none antialiased overflow-y-auto transition-colors duration-200">
       {/* Minimal Top Header */}
-      <header className="px-4 sm:px-6 h-13 sm:h-14 border-b border-[#B8B6AF] flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <img
-            src="/pwa-192x192.png"
-            alt="Bookshelf Logo"
-            className="w-6 h-6 rounded-[5px] object-cover border border-[#6E6C66] shrink-0"
-          />
-          <BookshelfWordmark className="h-[13px] sm:h-[15px] w-auto" />
+      <header className="px-4 sm:px-8 h-14 border-b border-[var(--paper-border)] flex items-center justify-between shrink-0 max-w-[1360px] mx-auto w-full">
+        <div className="flex items-center min-w-0">
+          <BookshelfWordmark className="text-[21px] sm:text-[23px]" />
         </div>
         <PWAInstallButton />
       </header>
 
-      {/* Center Login Card */}
+      {/* Center Paper-Ink Login Folio */}
       <div className="flex-1 flex items-center justify-center p-4 sm:p-6">
-        <div className="w-full max-w-sm bg-[#E2E0DA] border border-[#6E6C66] rounded-2xl p-6 sm:p-7 space-y-5">
+        <div className="w-full max-w-sm bg-[var(--paper-sheet)] border border-[var(--paper-border-strong)] rounded-2xl p-6 sm:p-8 space-y-6">
           <div className="flex flex-col items-center text-center space-y-3">
-            <img
-              src="/pwa-192x192.png"
-              alt="Bookshelf App Icon"
-              className="w-14 h-14 rounded-xl object-cover border border-[#6E6C66]"
-            />
             <div className="pt-1">
-              <BookshelfWordmark className="h-[16px] sm:h-[18px] w-auto mx-auto" />
+              <BookshelfWordmark className="text-[28px] sm:text-[32px] mx-auto" />
             </div>
-            <p className="text-xs sm:text-[13px] text-[#575550] leading-relaxed max-w-[270px]">
+            <p className="text-xs sm:text-[13px] text-[var(--ink-secondary)] leading-relaxed max-w-[270px]">
               Sign in with your Google account to sync your uploaded PDFs, reading progress, highlights, and library across devices.
             </p>
           </div>
@@ -121,7 +111,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onFallbackSignIn }) => {
                 <button
                   type="button"
                   onClick={handleContinueOnDevice}
-                  className="w-full h-8 px-3 bg-[#2B2A27] text-[#EAE8E2] rounded-lg text-[11px] font-medium cursor-pointer"
+                  className="w-full h-8 px-3 bg-[var(--ink-primary)] text-[var(--ink-inverse)] rounded-lg text-[11px] font-medium cursor-pointer"
                 >
                   Open Bookshelf Now (Device Storage)
                 </button>
@@ -134,7 +124,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onFallbackSignIn }) => {
               type="button"
               onClick={handleGoogleSignIn}
               disabled={isSigningIn}
-              className="w-full h-10 px-4 bg-[#2B2A27] hover:bg-[#1F1E1C] disabled:opacity-60 text-[#EAE8E2] border border-[#1F1E1C] rounded-xl text-xs sm:text-[13px] font-medium flex items-center justify-center gap-2.5 transition cursor-pointer"
+              className="w-full h-10.5 px-4 bg-[var(--ink-primary)] hover:opacity-90 disabled:opacity-60 text-[var(--ink-inverse)] border border-[var(--ink-primary)] rounded-xl text-xs sm:text-[13px] font-medium flex items-center justify-center gap-2.5 transition cursor-pointer"
             >
               <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
                 <path
@@ -158,18 +148,18 @@ export const LoginView: React.FC<LoginViewProps> = ({ onFallbackSignIn }) => {
             </button>
           </div>
 
-          <div className="pt-2 border-t border-[#C5C3BB] grid grid-cols-3 gap-2 text-center">
+          <div className="pt-3 border-t border-[var(--paper-border)] grid grid-cols-3 gap-2 text-center">
             <div>
-              <div className="text-[11px] font-semibold text-[#2B2A27]">Personal Library</div>
-              <div className="text-[10px] text-[#575550]">Private PDFs</div>
+              <div className="text-[11px] font-literata font-semibold text-[var(--ink-primary)]">Paper-Ink</div>
+              <div className="text-[10px] text-[var(--ink-secondary)]">Matte Display</div>
             </div>
-            <div className="border-x border-[#C5C3BB] px-1">
-              <div className="text-[11px] font-semibold text-[#2B2A27]">Auto Sync</div>
-              <div className="text-[10px] text-[#575550]">Page & Progress</div>
+            <div className="border-x border-[var(--paper-border)] px-1">
+              <div className="text-[11px] font-literata font-semibold text-[var(--ink-primary)]">Cloud Sync</div>
+              <div className="text-[10px] text-[var(--ink-secondary)]">PDF & Progress</div>
             </div>
             <div>
-              <div className="text-[11px] font-semibold text-[#2B2A27]">Smart Reflow</div>
-              <div className="text-[10px] text-[#575550]">Notes & Stacks</div>
+              <div className="text-[11px] font-literata font-semibold text-[var(--ink-primary)]">Smart Reflow</div>
+              <div className="text-[10px] text-[var(--ink-secondary)]">Notes & Stacks</div>
             </div>
           </div>
         </div>

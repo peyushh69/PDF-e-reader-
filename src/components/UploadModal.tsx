@@ -140,13 +140,13 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs font-sans">
-      <div className="relative w-full max-w-md bg-[#E2E0DA] text-[#2B2A27] rounded-xl shadow-2xl border border-[#5A5852] overflow-hidden">
+      <div className="relative w-full max-w-md bg-[var(--paper-sheet)] text-[var(--ink-primary)] rounded-xl shadow-2xl border border-[var(--paper-border-strong)] overflow-hidden">
         {/* Header */}
-        <div className="px-5 py-3.5 bg-[#DBD9D3] border-b border-[#B8B6AF] flex items-center justify-between">
-          <h3 className="font-semibold text-[#2B2A27] text-sm">Upload PDF</h3>
+        <div className="px-5 py-3.5 bg-[var(--paper-bg)] border-b border-[var(--paper-border)] flex items-center justify-between">
+          <h3 className="font-literata font-semibold text-[var(--ink-primary)] text-sm">Upload PDF</h3>
           <button
             onClick={onClose}
-            className="p-1 rounded-md text-[#575550] hover:text-[#2B2A27] hover:bg-[#D2D0C9] transition cursor-pointer"
+            className="p-1 rounded-md text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--paper-subtle)] transition cursor-pointer"
             aria-label="Close"
           >
             <X size={16} />
@@ -172,10 +172,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             onClick={() => fileInputRef.current?.click()}
             className={`border border-dashed rounded-xl p-5 text-center cursor-pointer transition-colors ${
               dragOver
-                ? 'border-[#2B2A27] bg-[#D2D0C9]'
+                ? 'border-[var(--ink-primary)] bg-[var(--paper-subtle)]'
                 : selectedFile
-                ? 'border-[#2B2A27] bg-[#DBD9D3]'
-                : 'border-[#6E6C66] hover:border-[#2B2A27] bg-[#DBD9D3]/70'
+                ? 'border-[var(--ink-primary)] bg-[var(--paper-bg)]'
+                : 'border-[var(--paper-border-strong)] hover:border-[var(--ink-primary)] bg-[var(--paper-bg)]'
             }`}
           >
             <input
@@ -192,14 +192,16 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
             {selectedFile ? (
               <div className="text-left">
-                <div className="font-medium text-xs truncate text-[#2B2A27]">{selectedFile.name}</div>
-                <div className="text-[11px] text-[#575550] mt-0.5">
+                <div className="font-medium text-xs truncate text-[var(--ink-primary)]">
+                  {selectedFile.name}
+                </div>
+                <div className="text-[11px] text-[var(--ink-secondary)] mt-0.5 tabular-nums">
                   {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB
                 </div>
               </div>
             ) : (
               <div className="py-2">
-                <div className="text-xs text-[#2B2A27] font-medium">
+                <div className="text-xs text-[var(--ink-primary)] font-medium">
                   Select a PDF file or drag and drop here
                 </div>
               </div>
@@ -210,34 +212,38 @@ export const UploadModal: React.FC<UploadModalProps> = ({
           {selectedFile && (
             <div className="space-y-2.5">
               <div>
-                <label className="block text-[11px] font-medium text-[#2B2A27] mb-1">Title</label>
+                <label className="block text-[11px] font-medium text-[var(--ink-primary)] mb-1">
+                  Title
+                </label>
                 <input
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   required
-                  className="w-full px-3 py-1.5 text-xs bg-[#DBD9D3] border border-[#6E6C66] rounded-lg text-[#2B2A27] focus:outline-none focus:border-[#2B2A27]"
+                  className="w-full px-3 py-1.5 text-xs bg-[var(--paper-bg)] border border-[var(--paper-border-strong)] rounded-lg text-[var(--ink-primary)] focus:outline-none focus:border-[var(--ink-primary)]"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-medium text-[#2B2A27] mb-1">Author</label>
+                <label className="block text-[11px] font-medium text-[var(--ink-primary)] mb-1">
+                  Author
+                </label>
                 <input
                   type="text"
                   value={author}
                   onChange={(e) => setAuthor(e.target.value)}
-                  className="w-full px-3 py-1.5 text-xs bg-[#DBD9D3] border border-[#6E6C66] rounded-lg text-[#2B2A27] focus:outline-none focus:border-[#2B2A27]"
+                  className="w-full px-3 py-1.5 text-xs bg-[var(--paper-bg)] border border-[var(--paper-border-strong)] rounded-lg text-[var(--ink-primary)] focus:outline-none focus:border-[var(--ink-primary)]"
                 />
               </div>
             </div>
           )}
 
           {/* Footer Buttons */}
-          <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#B8B6AF]">
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--paper-border)]">
             <button
               type="button"
               onClick={onClose}
-              className="px-3.5 py-1.5 text-xs font-medium text-[#575550] hover:text-[#2B2A27] rounded-lg hover:bg-[#D2D0C9] transition cursor-pointer"
+              className="px-3.5 py-1.5 text-xs font-medium text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] rounded-lg hover:bg-[var(--paper-subtle)] transition cursor-pointer"
             >
               Cancel
             </button>
@@ -246,8 +252,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               disabled={!selectedFile || isProcessing}
               className={`px-4 py-1.5 text-xs font-medium rounded-lg transition cursor-pointer ${
                 !selectedFile || isProcessing
-                  ? 'bg-[#C8C6BE] text-[#7A7872] cursor-not-allowed'
-                  : 'bg-[#383633] hover:bg-[#2B2A27] text-[#EAE8E2]'
+                  ? 'bg-[var(--paper-subtle)] text-[var(--ink-muted)] cursor-not-allowed'
+                  : 'bg-[var(--ink-primary)] hover:opacity-90 text-[var(--ink-inverse)]'
               }`}
             >
               {isProcessing ? 'Processing...' : 'Open Book'}

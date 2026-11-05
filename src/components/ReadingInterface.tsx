@@ -58,63 +58,63 @@ const THEME_CONFIGS: Record<
   }
 > = {
   light: {
-    bg: '#DBD9D3',
-    text: '#2B2A27',
-    secondaryText: '#575550',
-    border: '#8C8A83',
-    footerBorder: '#B8B6AF',
-    cardBg: '#E2E0DA',
-    canvasFilter: 'sepia(0.08) contrast(0.92) brightness(0.92)',
+    bg: '#F4F1EA',
+    text: '#161514',
+    secondaryText: '#524E48',
+    border: '#DCD6CA',
+    footerBorder: '#DCD6CA',
+    cardBg: '#FAF8F4',
+    canvasFilter: 'sepia(0.04) contrast(1.02) brightness(0.99)',
     isDark: false,
   },
   dark: {
-    bg: '#1E1D1B',
-    text: '#D8D6D0',
-    secondaryText: '#8A8882',
-    border: '#3A3834',
-    footerBorder: '#2C2B29',
-    cardBg: '#272624',
-    canvasFilter: 'invert(0.90) hue-rotate(180deg) contrast(0.95)',
+    bg: '#141413',
+    text: '#E6E3DC',
+    secondaryText: '#A09C94',
+    border: '#2E2D2A',
+    footerBorder: '#2E2D2A',
+    cardBg: '#1C1C1A',
+    canvasFilter: 'invert(0.91) hue-rotate(180deg) contrast(0.96)',
     isDark: true,
   },
   sepia: {
-    bg: '#DFD2BC',
-    text: '#2C2217',
-    secondaryText: '#6E5E48',
-    border: '#9C8C74',
-    footerBorder: '#C4B59B',
-    cardBg: '#E6DAC6',
-    canvasFilter: 'sepia(0.35) contrast(0.94) brightness(0.93)',
+    bg: '#E8DEC8',
+    text: '#231B12',
+    secondaryText: '#5E4E3C',
+    border: '#CBBCA0',
+    footerBorder: '#CBBCA0',
+    cardBg: '#F0E7D4',
+    canvasFilter: 'sepia(0.28) contrast(0.96) brightness(0.96)',
     isDark: false,
   },
   'warm-sepia': {
-    bg: '#E6DFCF',
-    text: '#2B251E',
-    secondaryText: '#686056',
-    border: '#9E9484',
-    footerBorder: '#C7BFAF',
-    cardBg: '#ECE6D8',
-    canvasFilter: 'sepia(0.2) contrast(0.94) brightness(0.94)',
+    bg: '#EFE9DC',
+    text: '#1E1A15',
+    secondaryText: '#595043',
+    border: '#D5CCB8',
+    footerBorder: '#D5CCB8',
+    cardBg: '#F6F2E8',
+    canvasFilter: 'sepia(0.14) contrast(0.98) brightness(0.97)',
     isDark: false,
   },
   'amber-glow': {
-    bg: '#E0CCA4',
-    text: '#2A1D0C',
-    secondaryText: '#6E5536',
-    border: '#9E875B',
-    footerBorder: '#C4AF84',
-    cardBg: '#E6D4B0',
-    canvasFilter: 'sepia(0.45) saturate(1.1) contrast(0.92) brightness(0.92)',
+    bg: '#E6D5B8',
+    text: '#21170B',
+    secondaryText: '#5C472C',
+    border: '#C7B089',
+    footerBorder: '#C7B089',
+    cardBg: '#EFE1C6',
+    canvasFilter: 'sepia(0.38) saturate(1.08) contrast(0.95) brightness(0.95)',
     isDark: false,
   },
   'emerald-paper': {
-    bg: '#D3DDD7',
-    text: '#1D2B23',
-    secondaryText: '#4E6356',
-    border: '#7D8F84',
-    footerBorder: '#B0BFB6',
-    cardBg: '#DCE5DF',
-    canvasFilter: 'hue-rotate(30deg) sepia(0.15) brightness(0.92)',
+    bg: '#E6ECE8',
+    text: '#131D17',
+    secondaryText: '#43544A',
+    border: '#C5D1C9',
+    footerBorder: '#C5D1C9',
+    cardBg: '#F0F5F1',
+    canvasFilter: 'hue-rotate(30deg) sepia(0.10) contrast(0.98) brightness(0.97)',
     isDark: false,
   },
 };
@@ -1822,7 +1822,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
             onTouchEnd={handlePdfTouchEnd}
             className="w-full h-full flex flex-col items-center justify-start p-3 sm:p-6 overflow-auto relative z-10 no-scrollbar touch-pan-x touch-pan-y reader-selectable"
             style={{
-              backgroundColor: currentTheme.isDark ? '#141414' : '#D8D6CF',
+              backgroundColor: currentTheme.bg,
             }}
           >
             <div
@@ -1835,8 +1835,11 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
               }}
             >
               <div
-                className="relative shadow-lg rounded-xs overflow-hidden border border-black/15 dark:border-white/15 select-text reader-selectable"
-                style={{ backgroundColor: currentTheme.bg }}
+                className="relative shadow-md rounded-xs overflow-hidden border select-text reader-selectable"
+                style={{
+                  backgroundColor: currentTheme.cardBg,
+                  borderColor: currentTheme.border,
+                }}
               >
                 <canvas
                   ref={canvasRef}
@@ -1902,21 +1905,8 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
               )}
             </div>
 
-            {/* PDF Zoom & Layout Control Bar (No duplicate page turn buttons) */}
+            {/* PDF Zoom & Layout Control Bar (Single-purpose, no duplicate page counter) */}
             <div className="fixed bottom-11 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 px-3 py-1.5 bg-stone-900/95 text-white rounded-md shadow-lg border border-white/15 text-xs font-sans">
-              <form onSubmit={handlePageJumpSubmit} className="flex items-center gap-1 text-[11px] font-mono tabular-nums">
-                <input
-                  type="text"
-                  value={pageInputVal}
-                  onChange={(e) => setPageInputVal(e.target.value)}
-                  onBlur={handlePageJumpSubmit}
-                  className="w-9 text-center bg-white/10 focus:bg-white/20 focus:outline-none rounded py-0.5 text-white font-semibold"
-                />
-                <span className="opacity-60">/ {totalPages}</span>
-              </form>
-
-              <div className="w-px h-3.5 bg-white/20 mx-0.5" />
-
               <button
                 onClick={() => {
                   setPdfZoomMode('custom');
@@ -1982,9 +1972,13 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
             />
           </div>
         ) : (
-          /* Reflow Mode */
+          /* Reflow Paper-Ink Sheet Mode */
           <div
-            className={`w-full max-w-2xl h-full flex flex-col justify-between py-4 sm:py-6 ${marginClass} select-text reflow-reader-content relative z-10 overflow-hidden`}
+            className={`w-full max-w-[760px] h-full flex flex-col justify-between py-5 sm:py-8 ${marginClass} sm:border-x select-text reflow-reader-content relative z-10 overflow-hidden transition-colors duration-200`}
+            style={{
+              backgroundColor: currentTheme.cardBg,
+              borderColor: currentTheme.border,
+            }}
           >
             <input
               ref={reattachInputRef}
@@ -1993,6 +1987,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
               className="hidden"
               onChange={handleReattachPdfFile}
             />
+
             {(isExtractingText || pdfLoading) && (
               <div className="text-xs opacity-70 font-sans flex items-center gap-1.5 mb-2">
                 <RefreshCw size={12} className="animate-spin" />

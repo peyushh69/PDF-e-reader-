@@ -15,8 +15,8 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ compact = fa
   }
 
   const btnClasses = compact
-    ? 'h-6.5 px-2.5 bg-[#E4E2DC] hover:bg-[#D5D3CC] text-[#2B2A27] border border-[#6E6C66] rounded-md text-[11px] font-medium flex items-center gap-1 transition cursor-pointer whitespace-nowrap shrink-0'
-    : 'h-8 px-3 bg-[#E4E2DC] hover:bg-[#D5D3CC] text-[#2B2A27] border border-[#6E6C66] rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0';
+    ? 'h-6.5 px-2.5 bg-[var(--paper-sheet)] hover:bg-[var(--paper-subtle)] text-[var(--ink-primary)] border border-[var(--paper-border-strong)] rounded-md text-[11px] font-medium flex items-center gap-1 transition cursor-pointer whitespace-nowrap shrink-0'
+    : 'h-8 px-3 bg-[var(--paper-sheet)] hover:bg-[var(--paper-subtle)] text-[var(--ink-primary)] border border-[var(--paper-border-strong)] rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0';
 
   if (isInstallable) {
     return (
@@ -49,32 +49,32 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ compact = fa
             onClick={() => setShowIOSGuide(false)}
           >
             <div
-              className="w-full max-w-sm rounded-xl bg-[#E2E0DA] text-[#2B2A27] border border-[#5A5852] p-5 shadow-2xl space-y-3"
+              className="w-full max-w-sm rounded-xl bg-[var(--paper-sheet)] text-[var(--ink-primary)] border border-[var(--paper-border-strong)] p-5 shadow-2xl space-y-3"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between border-b border-[#B8B6AF] pb-2.5">
+              <div className="flex items-center justify-between border-b border-[var(--paper-border)] pb-2.5">
                 <div className="flex items-center gap-2.5">
                   <img
                     src="/pwa-192x192.png"
                     alt="Bookshelf Logo"
-                    className="w-7 h-7 rounded-md object-cover border border-[#6E6C66]"
+                    className="w-7 h-7 rounded-md object-cover border border-[var(--paper-border-strong)]"
                   />
-                  <h3 className="text-sm font-semibold text-[#2B2A27]">Install Bookshelf</h3>
+                  <h3 className="text-sm font-semibold text-[var(--ink-primary)]">Install Bookshelf</h3>
                 </div>
                 <button
                   onClick={() => setShowIOSGuide(false)}
-                  className="p-1 rounded-md text-[#575550] hover:text-[#2B2A27] hover:bg-[#D2D0C9] transition cursor-pointer"
+                  className="p-1 rounded-md text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--paper-subtle)] transition cursor-pointer"
                 >
                   <X size={15} />
                 </button>
               </div>
-              <p className="text-xs text-[#2B2A27] leading-relaxed">
+              <p className="text-xs text-[var(--ink-primary)] leading-relaxed">
                 1. Tap the <strong>Share</strong> button in your browser toolbar.<br />
                 2. Scroll down and tap <strong>Add to Home Screen</strong> or <strong>Install App</strong>.
               </p>
               <button
                 onClick={() => setShowIOSGuide(false)}
-                className="w-full rounded-lg bg-[#383633] text-[#EAE8E2] py-2 text-xs font-medium hover:bg-[#2B2A27] transition cursor-pointer"
+                className="w-full rounded-lg bg-[var(--ink-primary)] text-[var(--ink-inverse)] py-2 text-xs font-medium hover:opacity-90 transition cursor-pointer"
               >
                 Got it
               </button>

@@ -113,13 +113,13 @@ export const GoogleDriveModal: React.FC<GoogleDriveModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs font-sans">
-      <div className="relative w-full max-w-md bg-[#E2E0DA] text-[#2B2A27] rounded-xl shadow-2xl border border-[#5A5852] overflow-hidden flex flex-col">
+      <div className="relative w-full max-w-md bg-[var(--paper-sheet)] text-[var(--ink-primary)] rounded-xl shadow-2xl border border-[var(--paper-border-strong)] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="px-5 py-3.5 bg-[#DBD9D3] border-b border-[#B8B6AF] flex items-center justify-between">
-          <h3 className="font-semibold text-[#2B2A27] text-sm">Google Drive</h3>
+        <div className="px-5 py-3.5 bg-[var(--paper-bg)] border-b border-[var(--paper-border)] flex items-center justify-between">
+          <h3 className="font-literata font-semibold text-[var(--ink-primary)] text-sm">Google Drive</h3>
           <button
             onClick={onClose}
-            className="p-1 rounded-md text-[#575550] hover:text-[#2B2A27] hover:bg-[#D2D0C9] transition cursor-pointer"
+            className="p-1 rounded-md text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] hover:bg-[var(--paper-subtle)] transition cursor-pointer"
             aria-label="Close"
           >
             <X size={16} />
@@ -136,7 +136,7 @@ export const GoogleDriveModal: React.FC<GoogleDriveModalProps> = ({
 
           <div
             onClick={() => fileInputRef.current?.click()}
-            className="border border-dashed border-[#6E6C66] hover:border-[#2B2A27] bg-[#DBD9D3] hover:bg-[#D2D0C9] rounded-xl p-6 text-center cursor-pointer transition"
+            className="border border-dashed border-[var(--paper-border-strong)] hover:border-[var(--ink-primary)] bg-[var(--paper-bg)] hover:bg-[var(--paper-subtle)] rounded-xl p-6 text-center cursor-pointer transition"
           >
             <input
               ref={fileInputRef}
@@ -149,20 +149,20 @@ export const GoogleDriveModal: React.FC<GoogleDriveModalProps> = ({
                 }
               }}
             />
-            <div className="text-xs font-medium text-[#2B2A27]">
+            <div className="text-xs font-medium text-[var(--ink-primary)]">
               {isImporting ? 'Importing PDF...' : 'Select PDF from Google Drive folder'}
             </div>
-            <p className="text-[11px] text-[#575550] mt-1">
+            <p className="text-[11px] text-[var(--ink-secondary)] mt-1">
               Import PDF documents into your Drive collection
             </p>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 bg-[#DBD9D3] border-t border-[#B8B6AF] flex items-center justify-end gap-2">
+        <div className="px-5 py-3 bg-[var(--paper-bg)] border-t border-[var(--paper-border)] flex items-center justify-end gap-2">
           <button
             onClick={onClose}
-            className="px-4 py-1.5 text-xs font-medium bg-[#383633] text-[#EAE8E2] hover:bg-[#2B2A27] rounded-lg transition cursor-pointer"
+            className="px-4 py-1.5 text-xs font-medium bg-[var(--ink-primary)] text-[var(--ink-inverse)] hover:opacity-90 rounded-lg transition cursor-pointer"
           >
             Close
           </button>
