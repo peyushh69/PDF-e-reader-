@@ -24,7 +24,12 @@ import {
 } from 'lucide-react';
 import { pdfjsLib, loadPdfDocumentSafe } from '../utils/pdfSetup';
 import { resolveBookPdfBytes, savePdfToStorage } from '../utils/pdfStorage';
-import { extractPageForReflow } from '../utils/pdfReflowEngine';
+import {
+  extractPageForReflow,
+  ChartBlockPayload,
+  TableBlockPayload,
+  PageMarginBlockPayload,
+} from '../utils/pdfReflowEngine';
 import { AnnotationToolbar, SelectionRangeData } from './AnnotationToolbar';
 import { NotesAndHighlightsModal } from './NotesAndHighlightsModal';
 
@@ -65,7 +70,7 @@ const THEME_CONFIGS: Record<
     border: '#DCD6CA',
     footerBorder: '#DCD6CA',
     cardBg: '#FAF8F4',
-    canvasFilter: 'sepia(0.04) contrast(1.02) brightness(0.99)',
+    canvasFilter: 'none',
     isDark: false,
   },
   dark: {
@@ -223,7 +228,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
     }
   };
 
-  // Measure container dimensions for responsive rendering
+  // Measure container dimensions for responsive rendering (ignoring minor mobile toolbar jitter)
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -231,7 +236,15 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
       if (containerRef.current) {
         const { clientWidth, clientHeight } = containerRef.current;
         if (clientWidth > 0 && clientHeight > 0) {
-          setContainerDimensions({ width: clientWidth, height: clientHeight });
+          setContainerDimensions((prev) => {
+            if (
+              Math.abs(prev.width - clientWidth) <= 2 &&
+              Math.abs(prev.height - clientHeight) <= 18
+            ) {
+              return prev;
+            }
+            return { width: clientWidth, height: clientHeight };
+          });
         }
       }
     };
@@ -422,11 +435,115 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
     };
   }, [isPdf, pdfDoc, currentPage, totalPages, readingMode, book.contentPages, extractedTextCache]);
 
+  const isReaderWordChar = useCallback(
+    (ch: string | undefined): boolean => Boolean(ch && /[\p{L}\p{N}'’]/u.test(ch)),
+    []
+  );
+
+  const buildAlnumMap = useCallback((input: string): { norm: string; indices: number[] } => {
+    const chars: string[] = [];
+    const indices: number[] = [];
+    for (let i = 0; i < input.length; i++) {
+      const ch = input[i];
+      if (ch === 'ﬁ') {
+        chars.push('f', 'i');
+        indices.push(i, i);
+      } else if (ch === 'ﬂ') {
+        chars.push('f', 'l');
+        indices.push(i, i);
+      } else if (ch === 'ﬀ') {
+        chars.push('f', 'f');
+        indices.push(i, i);
+      } else if (/[\p{L}\p{N}]/u.test(ch)) {
+        chars.push(ch.toLowerCase());
+        indices.push(i);
+      }
+    }
+    return { norm: chars.join(''), indices };
+  }, []);
+
+  const findUnifiedMatchRange = useCallback(
+    (haystack: string, needle: string): { start: number; end: number } | null => {
+      if (!haystack || !needle) return null;
+      const cleanNeedle = needle.replace(/\s+/g, ' ').trim();
+      if (!cleanNeedle) return null;
+
+      // 1. Direct case-insensitive substring match
+      const directIdx = haystack.toLowerCase().indexOf(cleanNeedle.toLowerCase());
+      if (directIdx !== -1) {
+        let s = directIdx;
+        let e = directIdx + cleanNeedle.length;
+        while (s > 0 && isReaderWordChar(haystack[s]) && isReaderWordChar(haystack[s - 1])) s--;
+        while (
+          e < haystack.length &&
+          isReaderWordChar(haystack[e - 1]) &&
+          isReaderWordChar(haystack[e])
+        ) {
+          e++;
+        }
+        return { start: s, end: e };
+      }
+
+      // 2. Alphanumeric normalized match (handles PDF line-break hyphens like "entre- preneurship",
+      //    whitespace differences, smart quotes, and ligatures seamlessly between Reflow & PDF)
+      const hayMap = buildAlnumMap(haystack);
+      const needleMap = buildAlnumMap(cleanNeedle);
+      if (!hayMap.norm || !needleMap.norm) return null;
+
+      const normIdx = hayMap.norm.indexOf(needleMap.norm);
+      if (normIdx !== -1) {
+        let s = hayMap.indices[normIdx];
+        let e = hayMap.indices[normIdx + needleMap.norm.length - 1] + 1;
+        while (s > 0 && isReaderWordChar(haystack[s]) && isReaderWordChar(haystack[s - 1])) s--;
+        while (
+          e < haystack.length &&
+          isReaderWordChar(haystack[e - 1]) &&
+          isReaderWordChar(haystack[e])
+        ) {
+          e++;
+        }
+        return { start: s, end: e };
+      }
+
+      // 3. Multi-block boundary overlap (when a highlight selected in PDF spans across 2 Reflow blocks)
+      if (needleMap.norm.length >= 14 && hayMap.norm.length >= 10) {
+        const maxOverlap = Math.min(hayMap.norm.length, needleMap.norm.length);
+        for (let len = maxOverlap; len >= 10; len--) {
+          if (hayMap.norm.endsWith(needleMap.norm.slice(0, len))) {
+            const startNormIdx = hayMap.norm.length - len;
+            let s = hayMap.indices[startNormIdx];
+            while (s > 0 && isReaderWordChar(haystack[s]) && isReaderWordChar(haystack[s - 1])) s--;
+            return { start: s, end: haystack.length };
+          }
+          if (hayMap.norm.startsWith(needleMap.norm.slice(needleMap.norm.length - len))) {
+            let e = hayMap.indices[len - 1] + 1;
+            while (
+              e < haystack.length &&
+              isReaderWordChar(haystack[e - 1]) &&
+              isReaderWordChar(haystack[e])
+            ) {
+              e++;
+            }
+            return { start: 0, end: e };
+          }
+        }
+      }
+
+      return null;
+    },
+    [buildAlnumMap, isReaderWordChar]
+  );
+
   const applyPdfHighlights = useCallback(() => {
     if (!textLayerRef.current) return;
-    const spans = Array.from(textLayerRef.current.querySelectorAll('span')) as HTMLSpanElement[];
+    const spans = Array.from(
+      textLayerRef.current.querySelectorAll(':scope > span')
+    ) as HTMLSpanElement[];
+
     spans.forEach((sp) => {
-      if (sp.dataset.rawText !== undefined) {
+      if (sp.dataset.rawText === undefined) {
+        sp.dataset.rawText = sp.textContent || '';
+      } else {
         sp.textContent = sp.dataset.rawText;
       }
       sp.style.backgroundColor = '';
@@ -436,7 +553,136 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
       sp.title = '';
       sp.onclick = null;
     });
-  }, []);
+
+    const pageHighlights = (book.highlights || []).filter(
+      (h) => h.pageNumber === currentPage && h.text && h.text.trim().length > 0
+    );
+    if (pageHighlights.length === 0 || spans.length === 0) return;
+
+    // Build a normalized character index across all spans on the page
+    let joinedPageText = '';
+    const spanRanges: {
+      span: HTMLSpanElement;
+      start: number;
+      end: number;
+      rawText: string;
+    }[] = [];
+
+    for (const sp of spans) {
+      const rawText = sp.dataset.rawText ?? sp.textContent ?? '';
+      if (!rawText) continue;
+      if (
+        joinedPageText.length > 0 &&
+        !joinedPageText.endsWith(' ') &&
+        !rawText.startsWith(' ')
+      ) {
+        joinedPageText += ' ';
+      }
+      const start = joinedPageText.length;
+      joinedPageText += rawText;
+      const end = joinedPageText.length;
+      spanRanges.push({ span: sp, start, end, rawText });
+    }
+
+    const perSpanSlices = new Map<
+      HTMLSpanElement,
+      { start: number; end: number; highlight: Highlight }[]
+    >();
+
+    for (const hl of pageHighlights) {
+      const matched = findUnifiedMatchRange(joinedPageText, hl.text);
+      if (!matched) continue;
+
+      const { start: matchStart, end: matchEnd } = matched;
+
+      for (const item of spanRanges) {
+        if (item.end > matchStart && item.start < matchEnd) {
+          const localStart = Math.max(0, matchStart - item.start);
+          const localEnd = Math.min(item.rawText.length, matchEnd - item.start);
+          if (localEnd > localStart) {
+            const list = perSpanSlices.get(item.span) || [];
+            list.push({ start: localStart, end: localEnd, highlight: hl });
+            perSpanSlices.set(item.span, list);
+          }
+        }
+      }
+    }
+
+    // Render exact word/character-level <mark> tags inside each matched PDF span (identical to Reflow)
+    perSpanSlices.forEach((slices, sp) => {
+      const rawText = sp.dataset.rawText ?? '';
+      if (!rawText || slices.length === 0) return;
+
+      slices.sort((a, b) => a.start - b.start || b.end - b.start - (a.end - a.start));
+
+      const merged: { start: number; end: number; highlight: Highlight }[] = [];
+      let cursor = 0;
+      for (const s of slices) {
+        const safeStart = Math.max(cursor, s.start);
+        const safeEnd = Math.max(safeStart, Math.min(rawText.length, s.end));
+        if (safeEnd > safeStart) {
+          merged.push({ start: safeStart, end: safeEnd, highlight: s.highlight });
+          cursor = safeEnd;
+        }
+      }
+
+      if (merged.length === 0) return;
+
+      sp.textContent = '';
+      let lastIdx = 0;
+
+      for (const seg of merged) {
+        if (seg.start > lastIdx) {
+          sp.appendChild(document.createTextNode(rawText.slice(lastIdx, seg.start)));
+        }
+
+        const mark = document.createElement('mark');
+        mark.className = 'pdf-highlight-mark';
+        mark.textContent = rawText.slice(seg.start, seg.end);
+        mark.style.backgroundColor = `${seg.highlight.color}45`;
+        mark.style.borderBottom = `2px solid ${seg.highlight.color}`;
+        mark.style.borderRadius = '2px';
+        mark.style.color = 'transparent';
+        mark.style.cursor = 'pointer';
+        mark.title = seg.highlight.note
+          ? `Note: "${seg.highlight.note}"`
+          : 'Tap to edit or remove highlight';
+
+        mark.onclick = (e) => {
+          e.stopPropagation();
+          try {
+            window.getSelection()?.removeAllRanges();
+          } catch (err) {}
+          const rect = mark.getBoundingClientRect();
+          setActiveSelection({
+            text: seg.highlight.text,
+            pageNumber: seg.highlight.pageNumber,
+            rect: {
+              top: rect.top,
+              left: rect.left,
+              bottom: rect.bottom,
+              right: rect.right,
+              width: rect.width,
+              height: rect.height,
+            },
+            existingHighlight: seg.highlight,
+          });
+        };
+
+        sp.appendChild(mark);
+        lastIdx = seg.end;
+      }
+
+      if (lastIdx < rawText.length) {
+        sp.appendChild(document.createTextNode(rawText.slice(lastIdx)));
+      }
+    });
+  }, [book.highlights, currentPage, findUnifiedMatchRange]);
+
+  const applyPdfHighlightsRef = useRef(applyPdfHighlights);
+  useEffect(() => {
+    applyPdfHighlightsRef.current = applyPdfHighlights;
+  }, [applyPdfHighlights]);
 
   useEffect(() => {
     if (readingMode === 'original-pdf') {
@@ -452,7 +698,10 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
     } catch (e) {}
   }, [currentPage, readingMode, pdfCustomZoomScale, pdfZoomMode, fontSize, book.id]);
 
-  // 3. Render Canvas in Original PDF Mode
+  const effectiveViewportHeightForPdf =
+    pdfZoomMode === 'fit-page' ? containerDimensions.height : 0;
+
+  // 3. Render Canvas in Original PDF Mode (Double-Buffered Offscreen Render for Zero Flicker)
   useEffect(() => {
     let isCancelled = false;
 
@@ -474,11 +723,6 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
       try {
         const page = await pdfDoc.getPage(currentPage);
         if (isCancelled) return;
-
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        const context = canvas.getContext('2d', { alpha: false });
-        if (!context) return;
 
         const unscaledViewport = page.getViewport({ scale: 1.0, rotation: pdfRotation });
         const isDual = layoutMode === 'dual' && !isMobile && currentPage < totalPages;
@@ -508,78 +752,192 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
 
         targetScale = Math.max(0.35, Math.min(4.0, targetScale));
 
-        const dpr = Math.max(window.devicePixelRatio || 1, 2);
+        const dpr = Math.min(2.25, Math.max(window.devicePixelRatio || 1, 1.75));
         const viewport = page.getViewport({ scale: targetScale * dpr, rotation: pdfRotation });
+        const pixelWidth = Math.round(viewport.width);
+        const pixelHeight = Math.round(viewport.height);
+        const cssWidth = Math.round(viewport.width / dpr);
+        const cssHeight = Math.round(viewport.height / dpr);
 
-        canvas.width = Math.round(viewport.width);
-        canvas.height = Math.round(viewport.height);
-        canvas.style.width = `${Math.round(viewport.width / dpr)}px`;
-        canvas.style.height = `${Math.round(viewport.height / dpr)}px`;
+        // Render onto an offscreen buffer first so the visible canvas never flashes blank white
+        const offscreenCanvas = document.createElement('canvas');
+        offscreenCanvas.width = pixelWidth;
+        offscreenCanvas.height = pixelHeight;
+        const offscreenCtx = offscreenCanvas.getContext('2d', { alpha: false });
+        if (!offscreenCtx) return;
 
         const renderTask = page.render({
-          canvasContext: context,
+          canvasContext: offscreenCtx,
           viewport,
-          canvas,
+          canvas: offscreenCanvas,
         } as any);
         currentRenderTaskRef.current = renderTask;
         await renderTask.promise;
 
+        if (isCancelled || !canvasRef.current) return;
+
+        // Atomically swap completed bitmap onto the visible canvas (zero blank frame)
+        const visibleCanvas = canvasRef.current;
+        visibleCanvas.width = pixelWidth;
+        visibleCanvas.height = pixelHeight;
+        visibleCanvas.style.width = `${cssWidth}px`;
+        visibleCanvas.style.height = `${cssHeight}px`;
+        const visibleCtx = visibleCanvas.getContext('2d', { alpha: false });
+        if (visibleCtx) {
+          visibleCtx.drawImage(offscreenCanvas, 0, 0);
+        }
+
         if (textLayerRef.current) {
           textLayerRef.current.innerHTML = '';
-          textLayerRef.current.style.width = `${Math.round(viewport.width / dpr)}px`;
-          textLayerRef.current.style.height = `${Math.round(viewport.height / dpr)}px`;
+          textLayerRef.current.style.width = `${cssWidth}px`;
+          textLayerRef.current.style.height = `${cssHeight}px`;
 
           try {
             const textContent = await page.getTextContent();
+            if (isCancelled || !textLayerRef.current) return;
             const textViewport = page.getViewport({ scale: targetScale, rotation: pdfRotation });
 
-            if (typeof (pdfjsLib as any).TextLayer === 'function') {
-              const textLayerInstance = new (pdfjsLib as any).TextLayer({
-                textContentSource: textContent,
-                container: textLayerRef.current,
-                viewport: textViewport,
-              });
-              await textLayerInstance.render();
-            } else if (textContent && textContent.items && textContent.items.length > 0) {
-              const fragment = document.createDocumentFragment();
+            if (textContent && textContent.items && textContent.items.length > 0) {
+              interface PdfLineRun {
+                str: string;
+                left: number;
+                top: number;
+                right: number;
+                baselineY: number;
+                fontHeight: number;
+              }
+
+              const rawRuns: PdfLineRun[] = [];
+
               for (const item of textContent.items as any[]) {
                 if (!item.str || item.str.length === 0) continue;
                 const tx = pdfjsLib.Util.transform(textViewport.transform, item.transform);
                 const fontHeight = Math.hypot(tx[2], tx[3]);
+                if (!fontHeight || fontHeight <= 0) continue;
+
+                const left = tx[4];
+                const baselineY = tx[5];
+                const top = baselineY - fontHeight * 0.86;
+                const itemWidth =
+                  typeof item.width === 'number' && item.width > 0
+                    ? item.width * textViewport.scale
+                    : item.str.length * fontHeight * 0.52;
+                const right = left + itemWidth;
+
+                rawRuns.push({
+                  str: item.str,
+                  left,
+                  top,
+                  right,
+                  baselineY,
+                  fontHeight,
+                });
+              }
+
+              // Sort in strict top-to-bottom, left-to-right reading order
+              rawRuns.sort((a, b) => {
+                if (Math.abs(a.baselineY - b.baselineY) > Math.min(a.fontHeight, b.fontHeight) * 0.38) {
+                  return a.baselineY - b.baselineY;
+                }
+                return a.left - b.left;
+              });
+
+              // Merge adjacent runs on the same baseline into continuous line spans (eliminating intra-line gaps)
+              const mergedLines: PdfLineRun[] = [];
+              for (const run of rawRuns) {
+                const prev = mergedLines[mergedLines.length - 1];
+                if (
+                  prev &&
+                  Math.abs(run.baselineY - prev.baselineY) <= prev.fontHeight * 0.38 &&
+                  run.left >= prev.left - 2 &&
+                  run.left - prev.right <= prev.fontHeight * 2.2
+                ) {
+                  const gap = run.left - prev.right;
+                  if (
+                    gap > prev.fontHeight * 0.08 &&
+                    !prev.str.endsWith(' ') &&
+                    !run.str.startsWith(' ')
+                  ) {
+                    prev.str += ' ';
+                  }
+                  prev.str += run.str;
+                  prev.right = Math.max(prev.right, run.right);
+                } else {
+                  mergedLines.push({ ...run });
+                }
+              }
+
+              const fragment = document.createDocumentFragment();
+              for (const line of mergedLines) {
                 const span = document.createElement('span');
-                span.textContent = item.str;
+                span.textContent = line.str;
+                span.dataset.rawText = line.str;
+                span.dataset.targetWidth = String(Math.max(1, line.right - line.left));
                 span.style.position = 'absolute';
-                span.style.left = `${tx[4]}px`;
-                span.style.top = `${tx[5] - fontHeight}px`;
-                span.style.fontSize = `${fontHeight}px`;
-                span.style.lineHeight = '1';
+                span.style.left = `${line.left.toFixed(2)}px`;
+                span.style.top = `${line.top.toFixed(2)}px`;
+                span.style.fontSize = `${line.fontHeight.toFixed(2)}px`;
+                span.style.lineHeight = '1.15';
+                span.style.padding = '2px 0';
+                span.style.fontFamily = "'Times New Roman', Georgia, serif";
+                span.style.whiteSpace = 'pre';
                 span.style.transformOrigin = '0% 0%';
                 fragment.appendChild(span);
               }
+
               textLayerRef.current.appendChild(fragment);
+
+              // Calibrate horizontal scaleX on each line span so its width matches the PDF canvas line 100%
+              const renderedSpans = Array.from(
+                textLayerRef.current.querySelectorAll(':scope > span')
+              ) as HTMLSpanElement[];
+              const measureCanvas = document.createElement('canvas');
+              const measureCtx = measureCanvas.getContext('2d');
+
+              for (const sp of renderedSpans) {
+                const targetW = parseFloat(sp.dataset.targetWidth || '0');
+                const rawTxt = sp.dataset.rawText || '';
+                const fSize = parseFloat(sp.style.fontSize || '14');
+                let naturalW = sp.offsetWidth;
+                if ((!naturalW || naturalW <= 0) && measureCtx) {
+                  measureCtx.font = `${fSize}px "Times New Roman", Georgia, serif`;
+                  naturalW = measureCtx.measureText(rawTxt).width;
+                }
+                if (targetW > 2 && naturalW > 2) {
+                  const scaleX = Math.max(0.65, Math.min(1.65, targetW / naturalW));
+                  sp.style.transform = `scaleX(${scaleX.toFixed(4)})`;
+                }
+              }
             }
 
-            applyPdfHighlights();
+            applyPdfHighlightsRef.current();
           } catch (textErr) {}
         }
 
         if (isDual && dualCanvasRef.current && currentPage + 1 <= totalPages) {
           const page2 = await pdfDoc.getPage(currentPage + 1);
           if (!isCancelled && dualCanvasRef.current) {
-            const dualCtx = dualCanvasRef.current.getContext('2d', { alpha: false });
-            if (dualCtx) {
-              const viewport2 = page2.getViewport({ scale: targetScale * dpr, rotation: pdfRotation });
-              dualCanvasRef.current.width = Math.round(viewport2.width);
-              dualCanvasRef.current.height = Math.round(viewport2.height);
-              dualCanvasRef.current.style.width = `${Math.round(viewport2.width / dpr)}px`;
-              dualCanvasRef.current.style.height = `${Math.round(viewport2.height / dpr)}px`;
+            const viewport2 = page2.getViewport({ scale: targetScale * dpr, rotation: pdfRotation });
+            const offscreenDual = document.createElement('canvas');
+            offscreenDual.width = Math.round(viewport2.width);
+            offscreenDual.height = Math.round(viewport2.height);
+            const offscreenDualCtx = offscreenDual.getContext('2d', { alpha: false });
+            if (offscreenDualCtx) {
               const dualRender = page2.render({
-                canvasContext: dualCtx,
+                canvasContext: offscreenDualCtx,
                 viewport: viewport2,
-                canvas: dualCanvasRef.current,
+                canvas: offscreenDual,
               } as any);
               dualRenderTaskRef.current = dualRender;
               await dualRender.promise;
+              if (!isCancelled && dualCanvasRef.current) {
+                dualCanvasRef.current.width = offscreenDual.width;
+                dualCanvasRef.current.height = offscreenDual.height;
+                dualCanvasRef.current.style.width = `${Math.round(viewport2.width / dpr)}px`;
+                dualCanvasRef.current.style.height = `${Math.round(viewport2.height / dpr)}px`;
+                const dualVisibleCtx = dualCanvasRef.current.getContext('2d', { alpha: false });
+                dualVisibleCtx?.drawImage(offscreenDual, 0, 0);
+              }
             }
           }
         }
@@ -621,11 +979,11 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
     pdfZoomMode,
     pdfCustomZoomScale,
     pdfRotation,
-    containerDimensions,
+    containerDimensions.width,
+    effectiveViewportHeightForPdf,
     isMobile,
     isTablet,
     totalPages,
-    applyPdfHighlights,
   ]);
 
   useEffect(() => {
@@ -813,7 +1171,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
       .replace(/(^|[^\*])\*([^\*]+?)\*([^\*]|$)/g, '$1<em>$2</em>$3');
 
     const tokenRegex =
-      /(<strong>[\s\S]*?<\/strong>|<b>[\s\S]*?<\/b>|<em>[\s\S]*?<\/em>|<i>[\s\S]*?<\/i>|https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+      /(<strong>[\s\S]*?<\/strong>|<b>[\s\S]*?<\/b>|<em>[\s\S]*?<\/em>|<i>[\s\S]*?<\/i>|<sup>[\s\S]*?<\/sup>|https?:\/\/[^\s]+|www\.[^\s]+)/gi;
     const rawTokens = normalized.split(tokenRegex);
 
     return rawTokens.map((token, i) => {
@@ -836,6 +1194,16 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
           <em key={i} className="italic">
             {renderRichContent(inner)}
           </em>
+        );
+      }
+
+      if (/^<sup\b[^>]*>([\s\S]*?)<\/sup>$/i.test(token)) {
+        const match = token.match(/^<sup\b[^>]*>([\s\S]*?)<\/sup>$/i);
+        const inner = match ? match[1] : token;
+        return (
+          <sup key={i} className="text-[0.72em] leading-none font-normal align-super ml-[1px]">
+            {renderRichContent(inner)}
+          </sup>
         );
       }
 
@@ -871,35 +1239,26 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
       .replace(/\*\*(.+?)\*\*/g, '$1')
       .replace(/__(.+?)__/g, '$1')
       .replace(/(^|[^\*])\*([^\*]+?)\*([^\*]|$)/g, '$1$2$3')
-      .replace(/<\/?(?:strong|b|em|i)\b[^>]*>/gi, '');
+      .replace(/<\/?(?:strong|b|em|i|sup)\b[^>]*>/gi, '');
 
   const renderBlockWithHighlights = (rawText: string, blockIndex: number): React.ReactNode => {
     if (!rawText) return null;
-    const pageHighlights = (book.highlights || []).filter((h) => h.pageNumber === currentPage);
+    const pageHighlights = (book.highlights || []).filter(
+      (h) => h.pageNumber === currentPage && h.text && h.text.trim().length > 0
+    );
 
     if (pageHighlights.length === 0) {
       return renderRichContent(rawText);
     }
 
     const plainBlockText = stripHtmlTags(rawText);
-
-    const blockHighlights = pageHighlights.filter((h) => {
-      if (typeof h.blockIndex === 'number') {
-        return h.blockIndex === blockIndex;
-      }
-      return h.text && plainBlockText.toLowerCase().includes(h.text.toLowerCase());
-    });
-
-    if (blockHighlights.length === 0) {
-      return renderRichContent(rawText);
-    }
-
     const candidateRanges: HighlightRange[] = [];
 
-    const isWordChar = (ch: string | undefined) => Boolean(ch && /[\p{L}\p{N}'’]/u.test(ch));
-
-    for (const hl of blockHighlights) {
+    for (const hl of pageHighlights) {
+      // 1. If highlight has explicit Reflow blockIndex + offsets for this block, try exact offset first
       if (
+        typeof hl.blockIndex === 'number' &&
+        hl.blockIndex === blockIndex &&
         typeof hl.startOffset === 'number' &&
         typeof hl.endOffset === 'number' &&
         hl.endOffset > hl.startOffset
@@ -907,50 +1266,42 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
         let clampedStart = Math.max(0, Math.min(plainBlockText.length, hl.startOffset));
         let clampedEnd = Math.max(clampedStart, Math.min(plainBlockText.length, hl.endOffset));
 
-        // Ensure highlights never cut off mid-word (e.g. "playin" + "g")
         while (
           clampedStart > 0 &&
-          isWordChar(plainBlockText[clampedStart]) &&
-          isWordChar(plainBlockText[clampedStart - 1])
+          isReaderWordChar(plainBlockText[clampedStart]) &&
+          isReaderWordChar(plainBlockText[clampedStart - 1])
         ) {
           clampedStart--;
         }
         while (
           clampedEnd < plainBlockText.length &&
-          isWordChar(plainBlockText[clampedEnd - 1]) &&
-          isWordChar(plainBlockText[clampedEnd])
+          isReaderWordChar(plainBlockText[clampedEnd - 1]) &&
+          isReaderWordChar(plainBlockText[clampedEnd])
         ) {
           clampedEnd++;
         }
 
-        if (clampedEnd > clampedStart) {
+        const sliceNorm = buildAlnumMap(plainBlockText.slice(clampedStart, clampedEnd)).norm;
+        const hlNorm = buildAlnumMap(hl.text).norm;
+        if (
+          clampedEnd > clampedStart &&
+          sliceNorm &&
+          hlNorm &&
+          (sliceNorm === hlNorm || sliceNorm.includes(hlNorm) || hlNorm.includes(sliceNorm))
+        ) {
           candidateRanges.push({ start: clampedStart, end: clampedEnd, highlight: hl });
           continue;
         }
       }
 
-      if (hl.text && hl.text.trim()) {
-        const targetWord = hl.text.trim().toLowerCase();
-        const foundIdx = plainBlockText.toLowerCase().indexOf(targetWord);
-        if (foundIdx !== -1) {
-          let sIdx = foundIdx;
-          let eIdx = foundIdx + hl.text.trim().length;
-          while (sIdx > 0 && isWordChar(plainBlockText[sIdx]) && isWordChar(plainBlockText[sIdx - 1])) {
-            sIdx--;
-          }
-          while (
-            eIdx < plainBlockText.length &&
-            isWordChar(plainBlockText[eIdx - 1]) &&
-            isWordChar(plainBlockText[eIdx])
-          ) {
-            eIdx++;
-          }
-          candidateRanges.push({
-            start: sIdx,
-            end: eIdx,
-            highlight: hl,
-          });
-        }
+      // 2. Unified cross-mode match (matches highlights created in PDF view OR Reflow view, including inside tables & captions)
+      const unifiedMatch = findUnifiedMatchRange(plainBlockText, hl.text);
+      if (unifiedMatch && unifiedMatch.end > unifiedMatch.start) {
+        candidateRanges.push({
+          start: unifiedMatch.start,
+          end: unifiedMatch.end,
+          highlight: hl,
+        });
       }
     }
 
@@ -998,7 +1349,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
             e.stopPropagation();
             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
             setActiveSelection({
-              text: highlightedText,
+              text: hl.text || highlightedText,
               pageNumber: hl.pageNumber,
               rect: {
                 top: rect.top,
@@ -1009,7 +1360,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
                 height: rect.height,
               },
               existingHighlight: hl,
-              blockIndex: hl.blockIndex,
+              blockIndex: hl.blockIndex ?? blockIndex,
               startOffset: range.start,
               endOffset: range.end,
             });
@@ -1087,7 +1438,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
     setActiveSelection(null);
   };
 
-  // Text selection listener for Reflow & PDF mode
+  // Unified text selection listener for both Reflow & PDF modes
   useEffect(() => {
     let checkTimeout: any = null;
 
@@ -1133,6 +1484,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
         let resolvedText = rawSelectionText;
 
         if (blockElement) {
+          // Reflow Mode: snap selection to complete word boundaries inside block
           const parsedIdx = parseInt(blockElement.getAttribute('data-block-index') || '', 10);
           if (!isNaN(parsedIdx)) {
             blockIndex = parsedIdx;
@@ -1160,7 +1512,6 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
                 eOff = tmp;
               }
 
-              // Trim leading/trailing whitespace within block
               while (sOff < eOff && /\s/.test(fullBlockDomText[sOff])) {
                 sOff++;
               }
@@ -1168,21 +1519,17 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
                 eOff--;
               }
 
-              // Snap start and end offsets to full word boundaries so words are never cut in half
-              const isWordChar = (ch: string | undefined) =>
-                Boolean(ch && /[\p{L}\p{N}'’]/u.test(ch));
-
               while (
                 sOff > 0 &&
-                isWordChar(fullBlockDomText[sOff]) &&
-                isWordChar(fullBlockDomText[sOff - 1])
+                isReaderWordChar(fullBlockDomText[sOff]) &&
+                isReaderWordChar(fullBlockDomText[sOff - 1])
               ) {
                 sOff--;
               }
               while (
                 eOff < fullBlockDomText.length &&
-                isWordChar(fullBlockDomText[eOff - 1]) &&
-                isWordChar(fullBlockDomText[eOff])
+                isReaderWordChar(fullBlockDomText[eOff - 1]) &&
+                isReaderWordChar(fullBlockDomText[eOff])
               ) {
                 eOff++;
               }
@@ -1194,7 +1541,46 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
               }
             } catch (err) {}
           }
+        } else {
+          // PDF Mode: snap selection to complete word boundaries inside PDF text layer spans
+          try {
+            const expandedRange = range.cloneRange();
+            if (expandedRange.startContainer.nodeType === Node.TEXT_NODE) {
+              const startText = expandedRange.startContainer.textContent || '';
+              let sOff = expandedRange.startOffset;
+              while (
+                sOff > 0 &&
+                isReaderWordChar(startText[sOff]) &&
+                isReaderWordChar(startText[sOff - 1])
+              ) {
+                sOff--;
+              }
+              expandedRange.setStart(expandedRange.startContainer, sOff);
+            }
+            if (expandedRange.endContainer.nodeType === Node.TEXT_NODE) {
+              const endText = expandedRange.endContainer.textContent || '';
+              let eOff = expandedRange.endOffset;
+              while (
+                eOff < endText.length &&
+                isReaderWordChar(endText[eOff - 1]) &&
+                isReaderWordChar(endText[eOff])
+              ) {
+                eOff++;
+              }
+              expandedRange.setEnd(expandedRange.endContainer, eOff);
+            }
+            const expandedStr = expandedRange
+              .toString()
+              .replace(/([\p{L}])-\s+([\p{L}])/gu, '$1$2')
+              .replace(/\s+/g, ' ')
+              .trim();
+            if (expandedStr.length > 0) {
+              resolvedText = expandedStr;
+            }
+          } catch (err) {}
         }
+
+        const resolvedNorm = buildAlnumMap(resolvedText).norm;
 
         const existing = book.highlights?.find((h) => {
           if (h.pageNumber !== currentPage) return false;
@@ -1206,6 +1592,10 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
               const sEnd = endOffset ?? startOffset + resolvedText.length;
               return Math.max(startOffset, h.startOffset) < Math.min(sEnd, hEnd);
             }
+          }
+          const hNorm = buildAlnumMap(h.text || '').norm;
+          if (resolvedNorm && hNorm) {
+            return resolvedNorm === hNorm || hNorm.includes(resolvedNorm) || resolvedNorm.includes(hNorm);
           }
           return h.text.trim() === resolvedText;
         });
@@ -1245,10 +1635,12 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
     };
 
     const handleContextMenu = (e: MouseEvent) => {
-      if (readingMode === 'reflow-ereader') {
-        const sel = window.getSelection();
+      const target = e.target as Node | null;
+      const isInReader = containerRef.current && target && containerRef.current.contains(target);
+      const sel = window.getSelection();
+      if (isInReader || (sel && !sel.isCollapsed && sel.toString().trim().length > 0)) {
+        e.preventDefault();
         if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) {
-          e.preventDefault();
           checkSelection();
         }
       }
@@ -1314,6 +1706,243 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
             }
           }
 
+          if (p.startsWith('[CHART_BLOCK]')) {
+            const rawJson = p.replace('[CHART_BLOCK]', '').trim();
+            try {
+              const chartData = JSON.parse(rawJson) as ChartBlockPayload;
+              if (chartData && chartData.img) {
+                return (
+                  <figure
+                    key={idx}
+                    data-block-index={idx}
+                    className="my-5 rounded-xl border p-2.5 sm:p-4 flex flex-col items-center justify-center w-full shadow-xs"
+                    style={{
+                      backgroundColor: currentTheme.cardBg,
+                      borderColor: currentTheme.border,
+                    }}
+                  >
+                    <div className="w-full overflow-hidden rounded-lg flex items-center justify-center bg-white">
+                      <img
+                        src={chartData.img}
+                        alt={chartData.plainCaption || `Chart on page ${currentPage}`}
+                        className="w-full h-auto max-h-[68vh] object-contain block mx-auto select-none"
+                        style={{
+                          filter: currentTheme.canvasFilter,
+                        }}
+                      />
+                    </div>
+                    {chartData.caption && (
+                      <figcaption
+                        className="mt-2.5 pt-2 border-t w-full text-center text-[0.88em] leading-snug tracking-tight font-medium select-text"
+                        style={{
+                          color: currentTheme.text,
+                          borderColor: currentTheme.border,
+                        }}
+                      >
+                        {renderBlockWithHighlights(chartData.caption, idx)}
+                      </figcaption>
+                    )}
+                  </figure>
+                );
+              }
+            } catch (e) {
+              // Fallback if JSON parse fails
+            }
+          }
+
+          if (p.startsWith('[TABLE_BLOCK]')) {
+            const rawJson = p.replace('[TABLE_BLOCK]', '').trim();
+            try {
+              const tableData = JSON.parse(rawJson) as TableBlockPayload;
+              if (tableData && (tableData.rows?.length > 0 || tableData.headers?.length > 0)) {
+                return (
+                  <div
+                    key={idx}
+                    data-block-index={idx}
+                    className="my-5 rounded-xl border p-3 sm:p-4 w-full shadow-xs text-left"
+                    style={{
+                      backgroundColor: currentTheme.cardBg,
+                      borderColor: currentTheme.border,
+                    }}
+                  >
+                    {tableData.titleRichText && (
+                      <div
+                        className="text-[0.92em] font-semibold tracking-tight leading-snug pb-2.5 mb-2 border-b"
+                        style={{
+                          color: currentTheme.text,
+                          borderColor: currentTheme.border,
+                        }}
+                      >
+                        {renderBlockWithHighlights(tableData.titleRichText, idx)}
+                      </div>
+                    )}
+                    <div className="w-full overflow-x-auto">
+                      <table
+                        className="w-full border-collapse text-[0.86em] sm:text-[0.9em] leading-snug"
+                        style={{ color: currentTheme.text }}
+                      >
+                        {tableData.headers && tableData.headers.length > 0 && (
+                          <thead>
+                            {tableData.headers.map((hRow, hIdx) => (
+                              <tr
+                                key={`th-row-${hIdx}`}
+                                className={
+                                  hIdx === tableData.headers.length - 1
+                                    ? 'border-b-2'
+                                    : 'border-b'
+                                }
+                                style={{ borderColor: currentTheme.border }}
+                              >
+                                {hRow.map((cell, cIdx) => {
+                                  const align = tableData.colAlignments?.[cIdx] || 'left';
+                                  return (
+                                    <th
+                                      key={`th-${hIdx}-${cIdx}`}
+                                      className={`py-1.5 px-2 font-semibold ${
+                                        align === 'right'
+                                          ? 'text-right tabular-nums'
+                                          : align === 'center'
+                                          ? 'text-center'
+                                          : 'text-left'
+                                      }`}
+                                    >
+                                      {renderBlockWithHighlights(cell, idx)}
+                                    </th>
+                                  );
+                                })}
+                              </tr>
+                            ))}
+                          </thead>
+                        )}
+                        <tbody>
+                          {tableData.rows.map((row, rIdx) => {
+                            const nonEmptyCount = row.cells.filter((c) => c.trim().length > 0).length;
+                            const isSingleSpanSubheader =
+                              row.isSubheader && nonEmptyCount === 1 && row.cells[0]?.trim().length > 0;
+
+                            if (isSingleSpanSubheader) {
+                              return (
+                                <tr
+                                  key={`tr-${rIdx}`}
+                                  className="border-b"
+                                  style={{ borderColor: `${currentTheme.border}80` }}
+                                >
+                                  <td
+                                    colSpan={Math.max(1, row.cells.length)}
+                                    className="pt-2.5 pb-1 px-2 font-semibold text-left"
+                                  >
+                                    {renderBlockWithHighlights(row.cells[0], idx)}
+                                  </td>
+                                </tr>
+                              );
+                            }
+
+                            return (
+                              <tr
+                                key={`tr-${rIdx}`}
+                                className={
+                                  rIdx === tableData.rows.length - 1 ? 'border-b-2' : 'border-b'
+                                }
+                                style={{
+                                  borderColor:
+                                    rIdx === tableData.rows.length - 1
+                                      ? currentTheme.border
+                                      : `${currentTheme.border}66`,
+                                }}
+                              >
+                                {row.cells.map((cell, cIdx) => {
+                                  const align = tableData.colAlignments?.[cIdx] || 'left';
+                                  const indentClass =
+                                    cIdx === 0 && row.indentFirstCol ? 'pl-5' : 'px-2';
+                                  return (
+                                    <td
+                                      key={`td-${rIdx}-${cIdx}`}
+                                      className={`py-1.5 ${indentClass} ${
+                                        align === 'right'
+                                          ? 'text-right tabular-nums whitespace-nowrap'
+                                          : align === 'center'
+                                          ? 'text-center'
+                                          : 'text-left'
+                                      } ${row.isSubheader ? 'font-semibold' : ''}`}
+                                    >
+                                      {renderBlockWithHighlights(cell, idx)}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              }
+            } catch (e) {
+              // Fallback if JSON parse fails
+            }
+          }
+
+          if (p.startsWith('[PAGE_HEADER]')) {
+            const rawJson = p.replace('[PAGE_HEADER]', '').trim();
+            try {
+              const headerData = JSON.parse(rawJson) as PageMarginBlockPayload;
+              return (
+                <div
+                  key={idx}
+                  data-block-index={idx}
+                  className="w-full flex items-baseline justify-between gap-4 pb-2.5 mb-5 border-b text-[0.82em] sm:text-[0.85em] tracking-wide opacity-90"
+                  style={{
+                    color: currentTheme.text,
+                    borderColor: `${currentTheme.border}99`,
+                  }}
+                >
+                  <div className="text-left font-medium min-w-[2ch]">
+                    {headerData.left ? renderBlockWithHighlights(headerData.left, idx) : null}
+                  </div>
+                  {headerData.center && (
+                    <div className="text-center font-medium">
+                      {renderBlockWithHighlights(headerData.center, idx)}
+                    </div>
+                  )}
+                  <div className="text-right font-medium min-w-[2ch]">
+                    {headerData.right ? renderBlockWithHighlights(headerData.right, idx) : null}
+                  </div>
+                </div>
+              );
+            } catch (e) {}
+          }
+
+          if (p.startsWith('[PAGE_FOOTER]')) {
+            const rawJson = p.replace('[PAGE_FOOTER]', '').trim();
+            try {
+              const footerData = JSON.parse(rawJson) as PageMarginBlockPayload;
+              return (
+                <div
+                  key={idx}
+                  data-block-index={idx}
+                  className="w-full flex items-baseline justify-between gap-4 pt-3 mt-6 border-t text-[0.86em] tabular-nums"
+                  style={{
+                    color: currentTheme.secondaryText,
+                    borderColor: `${currentTheme.border}80`,
+                  }}
+                >
+                  <div className="text-left min-w-[2ch]">
+                    {footerData.left ? renderBlockWithHighlights(footerData.left, idx) : null}
+                  </div>
+                  {footerData.center && (
+                    <div className="text-center">
+                      {renderBlockWithHighlights(footerData.center, idx)}
+                    </div>
+                  )}
+                  <div className="text-right min-w-[2ch]">
+                    {footerData.right ? renderBlockWithHighlights(footerData.right, idx) : null}
+                  </div>
+                </div>
+              );
+            } catch (e) {}
+          }
+
           if (p.startsWith('[SCENE_BREAK]')) {
             return (
               <div
@@ -1323,6 +1952,40 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
                 style={{ color: currentTheme.secondaryText }}
               >
                 * * *
+              </div>
+            );
+          }
+
+          if (p.includes('[RIGHT_HEADING]')) {
+            const clean = p.replace('[RIGHT_HEADING]', '').trim();
+            return (
+              <div key={idx} data-block-index={idx} className="w-full flex justify-end pt-3 pb-2 my-1">
+                <div
+                  className="inline-block text-right pb-1 border-b-2 tracking-[0.14em] uppercase text-[1.05em] sm:text-[1.12em] font-semibold"
+                  style={{
+                    color: currentTheme.text,
+                    borderColor: currentTheme.text,
+                  }}
+                >
+                  {renderBlockWithHighlights(clean, idx)}
+                </div>
+              </div>
+            );
+          }
+
+          if (p.includes('[CHAPTER_TITLE]')) {
+            const clean = p.replace('[CHAPTER_TITLE]', '').trim();
+            return (
+              <div key={idx} data-block-index={idx} className="text-left pt-3 pb-4 mb-3">
+                <h2
+                  className="inline-block min-w-[55%] pb-2 border-b-2 text-[1.45em] sm:text-[1.62em] font-bold tracking-tight leading-snug"
+                  style={{
+                    color: currentTheme.text,
+                    borderColor: currentTheme.text,
+                  }}
+                >
+                  {renderBlockWithHighlights(clean, idx)}
+                </h2>
               </div>
             );
           }
@@ -1414,6 +2077,25 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
                 style={{
                   color: currentTheme.text,
                   lineHeight,
+                }}
+              >
+                {renderBlockWithHighlights(clean, idx)}
+              </div>
+            );
+          }
+
+          if (p.includes('[FOOTNOTE]')) {
+            const clean = p.replace('[FOOTNOTE]', '').trim();
+            const prevP = paragraphs[idx - 1] || '';
+            const isFirstFootnote = !prevP.includes('[FOOTNOTE]');
+            return (
+              <div
+                key={idx}
+                data-block-index={idx}
+                className={`${isFirstFootnote ? 'mt-6 pt-3 border-t' : 'mt-1.5'} mb-1.5 text-[0.80em] sm:text-[0.83em] text-left leading-snug opacity-90`}
+                style={{
+                  color: currentTheme.text,
+                  borderColor: `${currentTheme.border}99`,
                 }}
               >
                 {renderBlockWithHighlights(clean, idx)}
@@ -1828,13 +2510,17 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
             }}
           >
             <div
-              className={`my-auto flex items-center justify-center max-w-full transition-transform duration-100 ${
+              className={`my-auto flex items-center justify-center max-w-full ${
                 layoutMode === 'dual' && !isMobile ? 'flex-row gap-4 sm:gap-6' : 'flex-col'
               }`}
-              style={{
-                transform: `scale(${livePinchScale})`,
-                transformOrigin: 'center center',
-              }}
+              style={
+                isPinching && livePinchScale !== 1
+                  ? {
+                      transform: `scale(${livePinchScale})`,
+                      transformOrigin: 'center center',
+                    }
+                  : undefined
+              }
             >
               <div
                 className="relative shadow-md rounded-xs overflow-hidden border select-text reader-selectable"
@@ -1847,12 +2533,13 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
                   ref={canvasRef}
                   className="max-w-none h-auto block select-none pointer-events-none"
                   style={{
-                    filter: currentTheme.canvasFilter,
+                    filter: currentTheme.canvasFilter !== 'none' ? currentTheme.canvasFilter : undefined,
                     display: 'block',
                   }}
                 />
                 <div
                   ref={textLayerRef}
+                  onContextMenu={(e) => e.preventDefault()}
                   className="pdf-text-layer absolute inset-0 overflow-hidden pointer-events-auto select-text reader-selectable z-10"
                 />
               </div>
@@ -1866,21 +2553,22 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
                     ref={dualCanvasRef}
                     className="max-w-none h-auto block"
                     style={{
-                      filter: currentTheme.canvasFilter,
+                      filter: currentTheme.canvasFilter !== 'none' ? currentTheme.canvasFilter : undefined,
                       display: 'block',
                     }}
                   />
                   <div
                     ref={dualTextLayerRef}
+                    onContextMenu={(e) => e.preventDefault()}
                     className="pdf-text-layer absolute inset-0 overflow-hidden pointer-events-auto select-text z-10"
                   />
                 </div>
               )}
 
-              {(pdfRendering || pdfLoading) && (
-                <div className="fixed inset-0 flex items-center justify-center bg-black/30 backdrop-blur-2xs text-xs font-sans text-white font-medium gap-2 z-30 pointer-events-none">
+              {pdfLoading && !pdfDoc && (
+                <div className="fixed inset-0 flex items-center justify-center bg-black/25 text-xs font-sans text-white font-medium gap-2 z-30 pointer-events-none">
                   <RefreshCw size={15} className="animate-spin text-white" />
-                  <span>Loading page {currentPage}...</span>
+                  <span>Loading PDF...</span>
                 </div>
               )}
 

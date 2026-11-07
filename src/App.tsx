@@ -657,57 +657,64 @@ export default function App() {
     setCurrentView('dashboard');
   };
 
-  const handleUpdateProgress = (bookId: string, newPage: number, secondsRead: number) => {
-    const now = Date.now();
-    const today = new Date().toISOString().split('T')[0];
+  const handleUpdateProgress = useCallback(
+    (bookId: string, newPage: number, secondsRead: number) => {
+      const now = Date.now();
+      const today = new Date().toISOString().split('T')[0];
 
-    setBooks((prev) =>
-      prev.map((b) => {
-        if (b.id === bookId) {
-          const validTotal = Math.max(1, b.totalPages || 1);
-          const clampedPage = Math.max(1, Math.min(newPage, validTotal));
-          const pageChanged = clampedPage !== b.currentPage;
-          const progressPercent = pageChanged
-            ? Math.round((clampedPage / validTotal) * 100)
-            : b.progressPercent || Math.round((clampedPage / validTotal) * 100);
-          const isFinished =
-            clampedPage >= validTotal && (pageChanged || b.isFinished || progressPercent >= 100);
-          const addedMinutes = secondsRead > 0 ? Number((secondsRead / 60).toFixed(2)) : 0;
+      setBooks((prev) =>
+        prev.map((b) => {
+          if (b.id === bookId) {
+            const validTotal = Math.max(1, b.totalPages || 1);
+            const clampedPage = Math.max(1, Math.min(newPage, validTotal));
+            const pageChanged = clampedPage !== b.currentPage;
+            const progressPercent = pageChanged
+              ? Math.round((clampedPage / validTotal) * 100)
+              : b.progressPercent || Math.round((clampedPage / validTotal) * 100);
+            const isFinished =
+              clampedPage >= validTotal && (pageChanged || b.isFinished || progressPercent >= 100);
+            const addedMinutes = secondsRead > 0 ? Number((secondsRead / 60).toFixed(2)) : 0;
 
-          const updated: Book = {
-            ...b,
-            currentPage: clampedPage,
-            progressPercent,
-            isFinished,
-            totalTimeReadMinutes: Number(((b.totalTimeReadMinutes || 0) + addedMinutes).toFixed(2)),
-            lastReadDate: today,
-            lastReadTimestamp: now,
+            if (!pageChanged && addedMinutes === 0) {
+              return b;
+            }
+
+            const updated: Book = {
+              ...b,
+              currentPage: clampedPage,
+              progressPercent,
+              isFinished,
+              totalTimeReadMinutes: Number(((b.totalTimeReadMinutes || 0) + addedMinutes).toFixed(2)),
+              lastReadDate: today,
+              lastReadTimestamp: now,
+            };
+            queueBookSync(updated, 1500);
+            return updated;
+          }
+          return b;
+        })
+      );
+
+      if (secondsRead > 0) {
+        setStats((prev) => {
+          const addedHours = secondsRead / 3600;
+          const newTotalHours = Number((prev.totalHours + addedHours).toFixed(2));
+          const newWeeklyHours = Number((prev.weeklyHoursLogged + addedHours).toFixed(2));
+          const totalMinutes = newTotalHours * 60;
+          const sessions = Math.max(1, prev.totalSessions);
+          const avgMins = Math.max(1, Math.round(totalMinutes / sessions));
+
+          return {
+            ...prev,
+            totalHours: newTotalHours,
+            weeklyHoursLogged: newWeeklyHours,
+            avgMinutesPerSession: avgMins,
           };
-          queueBookSync(updated, 1200);
-          return updated;
-        }
-        return b;
-      })
-    );
-
-    if (secondsRead > 0) {
-      setStats((prev) => {
-        const addedHours = secondsRead / 3600;
-        const newTotalHours = Number((prev.totalHours + addedHours).toFixed(2));
-        const newWeeklyHours = Number((prev.weeklyHoursLogged + addedHours).toFixed(2));
-        const totalMinutes = newTotalHours * 60;
-        const sessions = Math.max(1, prev.totalSessions);
-        const avgMins = Math.max(1, Math.round(totalMinutes / sessions));
-
-        return {
-          ...prev,
-          totalHours: newTotalHours,
-          weeklyHoursLogged: newWeeklyHours,
-          avgMinutesPerSession: avgMins,
-        };
-      });
-    }
-  };
+        });
+      }
+    },
+    [queueBookSync]
+  );
 
   const handleUpdateBookTotalPages = useCallback(
     (bookId: string, discoveredTotalPages: number) => {

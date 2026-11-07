@@ -33,7 +33,7 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({
   return (
     <div
       data-paper-theme={readingTheme}
-      className="relative w-full h-screen flex flex-col bg-[var(--paper-bg)] text-[var(--ink-primary)] overflow-hidden font-sans antialiased transition-colors duration-200"
+      className="relative w-full h-screen flex flex-col bg-[var(--paper-bg)] text-[var(--ink-primary)] overflow-hidden font-sans antialiased"
     >
       {/* Main Full-Screen App Content */}
       <div
@@ -43,23 +43,6 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({
         }}
       >
         {children}
-
-        {/* Subtle Matte E-Ink Paper Fiber Micro-Grain Overlay */}
-        <svg
-          className="pointer-events-none fixed inset-0 w-full h-full z-25 opacity-[0.026]"
-          aria-hidden="true"
-        >
-          <filter id="eink-paper-fiber">
-            <feTurbulence
-              type="fractalNoise"
-              baseFrequency="0.82"
-              numOctaves="3"
-              stitchTiles="stitch"
-            />
-            <feColorMatrix type="saturate" values="0" />
-          </filter>
-          <rect width="100%" height="100%" filter="url(#eink-paper-fiber)" />
-        </svg>
 
         {/* Dynamic Warm Light (Eye Protection) Frontlight Overlay */}
         {eyeProtection.enabled && eyeProtection.warmth > 0 && (

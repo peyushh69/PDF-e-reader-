@@ -141,27 +141,39 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
     onClose();
   };
 
-  // Compute smart viewport positioning (guarantee it NEVER covers the selected text or top header)
+  // Compute smart viewport positioning (guarantee it NEVER covers the selected text,
+  // mobile blue drag handles, or the browser's native selection bar at rect.top - 60px)
   const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 800;
   const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 600;
-  const toolbarWidth = Math.min(screenWidth - 24, 330);
+  const isMobileViewport = screenWidth < 768;
+  const toolbarWidth = Math.min(screenWidth - 24, 336);
   const estimatedToolbarHeight = 96;
-  const headerSafeBottom = 56; // keep clear of top header (48px)
-  const footerSafeTop = screenHeight - 46; // keep clear of bottom footer (36px)
-  const gap = 18; // clearance from selected text & touch handles
+  const headerSafeBottom = 54; // keep clear of top header (48px)
+  const footerSafeTop = screenHeight - 86; // keep clear of bottom footer & PDF zoom bar
+
+  // When a live text selection is active on mobile, Android/iOS browsers may render their own
+  // floating bar at [rect.top - 64px, rect.top - 8px] and drag handles at [rect.bottom, rect.bottom + 38px].
+  const aboveGap = existing ? 18 : isMobileViewport ? 78 : 22;
+  const belowGap = existing ? 18 : isMobileViewport ? 48 : 22;
 
   const centerX = selection.rect.left + selection.rect.width / 2;
   const leftPos = Math.max(12, Math.min(screenWidth - toolbarWidth - 12, centerX - toolbarWidth / 2));
 
   // Determine top position:
-  // Prefer placing ABOVE selection if there is room below the top header;
-  // otherwise place BELOW selection; if the selection spans most of the screen, place cleanly below the top header.
+  // On mobile live selection, prefer placing BELOW the selection handles if there is room,
+  // or ABOVE with 78px clearance so it never overlaps the browser's native Copy/Share bar.
   let topPos: number;
 
-  if (selection.rect.top - estimatedToolbarHeight - gap >= headerSafeBottom) {
-    topPos = selection.rect.top - estimatedToolbarHeight - gap;
-  } else if (selection.rect.bottom + gap + estimatedToolbarHeight <= footerSafeTop) {
-    topPos = selection.rect.bottom + gap;
+  if (
+    isMobileViewport &&
+    !existing &&
+    selection.rect.bottom + belowGap + estimatedToolbarHeight <= footerSafeTop
+  ) {
+    topPos = selection.rect.bottom + belowGap;
+  } else if (selection.rect.top - estimatedToolbarHeight - aboveGap >= headerSafeBottom) {
+    topPos = selection.rect.top - estimatedToolbarHeight - aboveGap;
+  } else if (selection.rect.bottom + belowGap + estimatedToolbarHeight <= footerSafeTop) {
+    topPos = selection.rect.bottom + belowGap;
   } else {
     topPos = headerSafeBottom;
   }
@@ -221,6 +233,7 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
           }}
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
         >
           <div className="bg-black text-white rounded-2xl shadow-2xl border border-stone-800 p-2.5 flex flex-col gap-2 ring-1 ring-white/10">
             {/* Direct Highlight Color Palette Bar */}
@@ -253,7 +266,20 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
 
             {/* Primary Action Buttons Bar */}
             <div className="flex items-center justify-between px-1 py-0.5 text-xs">
-              {/* 1. Note Button */}
+              {/* 1. Direct Save Highlight Button */}
+              <button
+                onClick={() => handleApplyHighlight(activeColor)}
+                onMouseDown={(e) => e.preventDefault()}
+                className="flex-1 flex items-center justify-center gap-1.5 py-1 px-1.5 rounded-lg hover:bg-stone-800 active:scale-95 transition cursor-pointer text-white font-semibold"
+                title="Save Highlight"
+              >
+                <Highlighter size={13} />
+                <span className="text-[11px]">Save</span>
+              </button>
+
+              <div className="w-px h-5 bg-stone-800 mx-0.5" />
+
+              {/* 2. Note Button */}
               <button
                 onClick={handleOpenNoteEditor}
                 onMouseDown={(e) => e.preventDefault()}
@@ -266,7 +292,7 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
                 </span>
               </button>
 
-              <div className="w-px h-5 bg-stone-800 mx-1" />
+              <div className="w-px h-5 bg-stone-800 mx-0.5" />
 
               {/* 3. Copy Button */}
               <button

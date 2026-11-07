@@ -290,6 +290,11 @@
 }
 
 /* PDF.js Text Layer Styling */
+.pdf-text-layer,
+.pdf-text-layer * {
+  -webkit-touch-callout: none !important;
+}
+
 .pdf-text-layer {
   position: absolute;
   top: 0;
@@ -300,7 +305,7 @@
   line-height: 1.0;
   user-select: text;
   -webkit-user-select: text;
-  -webkit-touch-callout: default;
+  -webkit-touch-callout: none !important;
   pointer-events: auto;
   opacity: 1;
   text-align: initial;
@@ -317,9 +322,7 @@
   pointer-events: auto;
   user-select: text;
   -webkit-user-select: text;
-  font-size: var(--font-height, 14px);
-  transform: rotate(var(--rotate, 0deg)) scaleX(var(--scale-x, 1));
-  transition: background-color 0.15s ease;
+  -webkit-touch-callout: none !important;
 }
 
 .pdf-text-layer mark.pdf-highlight-mark {
@@ -327,12 +330,17 @@
   pointer-events: auto;
   user-select: text;
   -webkit-user-select: text;
-  transition: background-color 0.15s ease;
   line-height: inherit;
   display: inline;
+  padding: 1px 0;
+  mix-blend-mode: multiply;
+}
+
+[data-paper-theme="dark"] .pdf-text-layer mark.pdf-highlight-mark {
+  mix-blend-mode: screen;
 }
 
 .pdf-text-layer ::selection {
-  background: rgba(250, 204, 21, 0.45) !important;
+  background: rgba(214, 207, 194, 0.55) !important;
   color: transparent !important;
 }
