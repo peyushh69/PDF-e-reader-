@@ -29,8 +29,8 @@ const PAGE_THEMES: {
   {
     id: 'light',
     name: 'Paper-Ink',
-    desc: 'Crisp matte paper & deep carbon ink',
-    swatchClass: 'bg-[#F4F1EA] text-[#161514] border-[#B8B0A2]',
+    desc: 'Matte grey e-ink display & charcoal ink',
+    swatchClass: 'bg-[#D8D9D6] text-[#222322] border-[#A2A5A0]',
   },
   {
     id: 'warm-sepia',

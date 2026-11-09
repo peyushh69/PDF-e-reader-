@@ -64,12 +64,12 @@ const THEME_CONFIGS: Record<
   }
 > = {
   light: {
-    bg: '#F4F1EA',
-    text: '#161514',
-    secondaryText: '#524E48',
-    border: '#DCD6CA',
-    footerBorder: '#DCD6CA',
-    cardBg: '#FAF8F4',
+    bg: '#D8D9D6',
+    text: '#222322',
+    secondaryText: '#484A47',
+    border: '#C0C2BE',
+    footerBorder: '#C0C2BE',
+    cardBg: '#D8D9D6',
     canvasFilter: 'none',
     isDark: false,
   },
@@ -173,23 +173,23 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
 
   const [fontSize, setFontSize] = useState<number>(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem('ereader_typography_prefs_v1') || '{}');
+      const saved = JSON.parse(localStorage.getItem('ereader_typography_prefs_v2') || '{}');
       if (typeof saved.fontSize === 'number' && saved.fontSize >= 12 && saved.fontSize <= 32) {
         return saved.fontSize;
       }
     } catch {}
-    return 17;
+    return 18;
   });
   const [fontFamily, setFontFamily] = useState<FontOption>(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem('ereader_typography_prefs_v1') || '{}');
+      const saved = JSON.parse(localStorage.getItem('ereader_typography_prefs_v2') || '{}');
       if (saved.fontFamily) return saved.fontFamily as FontOption;
     } catch {}
-    return 'classic-serif';
+    return 'literata';
   });
   const [lineHeight, setLineHeight] = useState<number>(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem('ereader_typography_prefs_v1') || '{}');
+      const saved = JSON.parse(localStorage.getItem('ereader_typography_prefs_v2') || '{}');
       if (typeof saved.lineHeight === 'number' && saved.lineHeight >= 1.2 && saved.lineHeight <= 2.4) {
         return saved.lineHeight;
       }
@@ -198,7 +198,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
   });
   const [margins, setMargins] = useState<'compact' | 'normal' | 'spacious'>(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem('ereader_typography_prefs_v1') || '{}');
+      const saved = JSON.parse(localStorage.getItem('ereader_typography_prefs_v2') || '{}');
       if (saved.margins === 'compact' || saved.margins === 'normal' || saved.margins === 'spacious') {
         return saved.margins;
       }
@@ -209,7 +209,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
   useEffect(() => {
     try {
       localStorage.setItem(
-        'ereader_typography_prefs_v1',
+        'ereader_typography_prefs_v2',
         JSON.stringify({ fontSize, fontFamily, lineHeight, margins })
       );
     } catch {}
@@ -2049,12 +2049,11 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
           if (p.includes('[CHAPTER_TITLE]')) {
             const clean = p.replace('[CHAPTER_TITLE]', '').trim();
             return (
-              <div key={idx} data-block-index={idx} className="text-left pt-3 pb-4 mb-3">
+              <div key={idx} data-block-index={idx} className="text-center pt-5 pb-6 mb-2">
                 <h2
-                  className="inline-block min-w-[55%] pb-2 border-b-2 text-[1.45em] sm:text-[1.62em] font-bold tracking-tight leading-snug"
+                  className="text-[1.24em] sm:text-[1.36em] font-normal uppercase tracking-[0.18em] leading-relaxed"
                   style={{
                     color: currentTheme.text,
-                    borderColor: currentTheme.text,
                   }}
                 >
                   {renderBlockWithHighlights(clean, idx)}
@@ -2065,10 +2064,15 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
 
           if (p.includes('[CENTERED_HEADING]')) {
             const clean = p.replace('[CENTERED_HEADING]', '').trim();
+            const isShortNumeralOrWord = clean.length <= 16 && !/\d{3}/.test(clean);
             return (
               <div key={idx} data-block-index={idx} className="text-center pt-4 pb-3 my-1">
                 <h2
-                  className="text-[1.28em] sm:text-[1.38em] font-bold tracking-tight leading-snug"
+                  className={
+                    isShortNumeralOrWord
+                      ? 'text-[1.02em] italic font-normal tracking-wider leading-snug'
+                      : 'text-[1.22em] sm:text-[1.32em] font-normal uppercase tracking-[0.16em] leading-snug'
+                  }
                   style={{ color: currentTheme.text }}
                 >
                   {renderBlockWithHighlights(clean, idx)}
@@ -2178,13 +2182,20 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
 
           if (p.includes('[INDENT_PARAGRAPH]')) {
             const clean = p.replace('[INDENT_PARAGRAPH]', '').trim();
+            const prevBlock = paragraphs[idx - 1] || '';
+            const isAfterChapterTitle =
+              prevBlock.includes('[CHAPTER_TITLE]') || prevBlock.includes('[CENTERED_HEADING]');
             const nextP = paragraphs[idx + 1] || '';
             const nextIsIndented = nextP.includes('[INDENT_PARAGRAPH]');
             return (
               <p
                 key={idx}
                 data-block-index={idx}
-                className={`${nextIsIndented ? 'mb-2' : 'mb-3.5'} indent-6 sm:indent-8 text-justify leading-relaxed`}
+                className={`${nextIsIndented ? 'mb-2' : 'mb-3.5'} ${
+                  isAfterChapterTitle && /^[A-Z]/.test(clean)
+                    ? 'chapter-drop-cap'
+                    : 'indent-6 sm:indent-8'
+                } text-justify leading-relaxed`}
                 style={{
                   color: currentTheme.text,
                   hyphens: 'none',
@@ -2197,11 +2208,18 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
             );
           }
 
+          const prevBlock = paragraphs[idx - 1] || '';
+          const isFirstBodyAfterChapter =
+            (prevBlock.includes('[CHAPTER_TITLE]') || prevBlock.includes('[CENTERED_HEADING]')) &&
+            /^[A-Z]/.test(p.trim());
+
           return (
             <p
               key={idx}
               data-block-index={idx}
-              className="mb-3.5 text-justify leading-relaxed"
+              className={`mb-3.5 text-justify leading-relaxed ${
+                isFirstBodyAfterChapter ? 'chapter-drop-cap' : ''
+              }`}
               style={{
                 color: currentTheme.text,
                 hyphens: 'none',
@@ -2364,12 +2382,12 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
             <div className="grid grid-cols-2 gap-1.5">
               {(
                 [
-                  { id: 'dark', label: 'Dark' },
-                  { id: 'light', label: 'Daylight' },
+                  { id: 'light', label: 'Paper-Ink' },
                   { id: 'warm-sepia', label: 'Warm Cream' },
                   { id: 'sepia', label: 'Sepia' },
                   { id: 'amber-glow', label: 'Amber' },
                   { id: 'emerald-paper', label: 'Sage' },
+                  { id: 'dark', label: 'Dark' },
                 ] as const
               ).map((t) => (
                 <button

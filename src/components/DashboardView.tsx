@@ -181,7 +181,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="max-w-[1360px] mx-auto w-full px-4 sm:px-8 lg:px-10 py-2.5 sm:py-0 sm:h-15 flex flex-wrap sm:flex-nowrap items-center justify-between gap-y-2 gap-x-4">
           {/* 1. Brand Wordmark */}
           <div className="order-1 flex items-center min-w-0 shrink-0">
-            <BookshelfWordmark className="text-[21px] sm:text-[23px]" />
+            <BookshelfWordmark
+              className="text-[22px] sm:text-[26px] md:text-[28px]"
+              surface="bg"
+            />
           </div>
 
           {/* 2. Primary Action Toolbar */}

@@ -87,7 +87,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onFallbackSignIn }) => {
       {/* Minimal Top Header */}
       <header className="px-4 sm:px-8 h-14 border-b border-[var(--paper-border)] flex items-center justify-between shrink-0 max-w-[1360px] mx-auto w-full">
         <div className="flex items-center min-w-0">
-          <BookshelfWordmark className="text-[21px] sm:text-[23px]" />
+          <BookshelfWordmark
+            className="text-[22px] sm:text-[26px] md:text-[28px]"
+            surface="bg"
+          />
         </div>
         <PWAInstallButton />
       </header>
@@ -97,7 +100,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onFallbackSignIn }) => {
         <div className="w-full max-w-sm bg-[var(--paper-sheet)] border border-[var(--paper-border-strong)] rounded-2xl p-6 sm:p-8 space-y-6">
           <div className="flex flex-col items-center text-center space-y-3">
             <div className="pt-1">
-              <BookshelfWordmark className="text-[28px] sm:text-[32px] mx-auto" />
+              <BookshelfWordmark
+                className="text-[34px] sm:text-[40px] mx-auto"
+                surface="sheet"
+              />
             </div>
             <p className="text-xs sm:text-[13px] text-[var(--ink-secondary)] leading-relaxed max-w-[270px]">
               Sign in with your Google account to sync your uploaded PDFs, reading progress, highlights, and library across devices.

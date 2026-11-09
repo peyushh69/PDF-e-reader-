@@ -3,24 +3,24 @@
 @layer base {
   :root,
   [data-paper-theme="light"] {
-    --font-serif-classic: 'Literata', 'Newsreader', Georgia, serif;
+    --font-serif-classic: 'Bookerly', 'Literata', 'Newsreader', Georgia, serif;
     --font-serif-newsreader: 'Newsreader', 'EB Garamond', Georgia, serif;
-    --font-serif-literata: 'Literata', Georgia, serif;
+    --font-serif-literata: 'Bookerly', 'Literata', Georgia, serif;
     --font-serif-garamond: 'EB Garamond', Garamond, serif;
     --font-serif-lora: 'Lora', Georgia, serif;
     --font-sans-ember: 'Outfit', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
     --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
 
-    /* Carta 1300 Matte Paper-Ink Palette (Default) */
-    --paper-bg: #F4F1EA;
-    --paper-sheet: #FAF8F4;
-    --paper-subtle: #EAE5DB;
-    --paper-border: #DCD6CA;
-    --paper-border-strong: #B8B0A2;
-    --ink-primary: #161514;
-    --ink-secondary: #524E48;
-    --ink-muted: #78736A;
-    --ink-inverse: #FAF8F4;
+    /* Matte E-Ink Grey-Stone Palette (Default on First Open) */
+    --paper-bg: #D8D9D6;
+    --paper-sheet: #E0E1DE;
+    --paper-subtle: #CCCECA;
+    --paper-border: #C0C2BE;
+    --paper-border-strong: #A2A5A0;
+    --ink-primary: #222322;
+    --ink-secondary: #484A47;
+    --ink-muted: #666965;
+    --ink-inverse: #E0E1DE;
   }
 
   [data-paper-theme="warm-sepia"] {
@@ -97,14 +97,29 @@
 
 .font-classic-serif {
   font-family: var(--font-serif-classic);
+  font-optical-sizing: auto;
+  letter-spacing: 0.004em;
 }
 
 .font-newsreader {
   font-family: var(--font-serif-newsreader);
+  font-optical-sizing: auto;
 }
 
 .font-literata {
   font-family: var(--font-serif-literata);
+  font-optical-sizing: auto;
+  letter-spacing: 0.004em;
+}
+
+/* Classic Chapter Opening Drop Cap */
+.chapter-drop-cap::first-letter {
+  float: left;
+  font-size: 3.15em;
+  line-height: 0.82;
+  padding-right: 0.12em;
+  padding-top: 0.04em;
+  font-weight: 400;
 }
 
 .font-garamond {

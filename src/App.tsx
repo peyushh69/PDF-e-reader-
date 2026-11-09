@@ -57,9 +57,9 @@ const DEFAULT_CUSTOMIZATION: PersistedCustomization = {
   environmentBg: 'linen-bed',
   eyeProtection: {
     enabled: false,
-    warmth: 4,
-    brightness: 16,
-    blueLightFilter: true,
+    warmth: 0,
+    brightness: 24,
+    blueLightFilter: false,
     preset: 'afternoon',
   },
   readingTheme: 'light',
@@ -82,7 +82,7 @@ function getStatsStorageKey(uid: string) {
   return `ereader_stats_v8_${uid}`;
 }
 function getSettingsStorageKey(uid: string) {
-  return `ereader_settings_v8_${uid}`;
+  return `ereader_settings_v9_${uid}`;
 }
 
 function stripUndefined<T extends Record<string, any>>(obj: T): T {
@@ -669,11 +669,19 @@ export default function App() {
           if (data.stats && typeof data.stats.totalHours === 'number') {
             setStats(data.stats as ReadingStats);
           }
-          if (data.settings) {
+          const hasMigratedPaperInkDefault =
+            localStorage.getItem(`ereader_paper_ink_default_v10_${uid}`) === '1';
+          if (data.settings && hasMigratedPaperInkDefault) {
             if (data.settings.hardwareTheme) setHardwareTheme(data.settings.hardwareTheme);
             if (data.settings.environmentBg) setEnvironmentBg(data.settings.environmentBg);
             if (data.settings.eyeProtection) setEyeProtection(data.settings.eyeProtection);
             if (data.settings.readingTheme) setReadingTheme(data.settings.readingTheme);
+          } else {
+            try {
+              localStorage.setItem(`ereader_paper_ink_default_v10_${uid}`, '1');
+            } catch {}
+            setReadingTheme('light');
+            setEyeProtection(DEFAULT_CUSTOMIZATION.eyeProtection);
           }
         } else {
           // Initialize user profile doc on first login
@@ -1388,7 +1396,7 @@ export default function App() {
     <DeviceFrame eyeProtection={eyeProtection} readingTheme={readingTheme}>
       {authLoading ? (
         <div className="flex-1 flex flex-col items-center justify-center p-6 bg-[var(--paper-bg)] text-[var(--ink-primary)] font-sans gap-3">
-          <BookshelfWordmark className="text-2xl" />
+          <BookshelfWordmark className="text-[28px] sm:text-[34px]" surface="bg" />
           <span className="text-xs text-[var(--ink-secondary)]">Loading your bookshelf...</span>
         </div>
       ) : !user ? (
