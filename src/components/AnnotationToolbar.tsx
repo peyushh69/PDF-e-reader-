@@ -56,10 +56,20 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
   onUpdateHighlight,
   onDeleteHighlight,
 }) => {
-  const [selectedColor, setSelectedColor] = useState<string>('#facc15');
+  const [selectedColor, setSelectedColor] = useState<string>(
+    selection?.existingHighlight?.color || '#facc15'
+  );
   const [isNoteEditorOpen, setIsNoteEditorOpen] = useState<boolean>(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState<boolean>(false);
   const [noteText, setNoteText] = useState<string>('');
   const [copiedToast, setCopiedToast] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (selection?.existingHighlight?.color) {
+      setSelectedColor(selection.existingHighlight.color);
+    }
+    setIsDeleteConfirmOpen(false);
+  }, [selection?.existingHighlight?.id, selection?.existingHighlight?.color]);
 
   const applyHighlightCallback = onApplyHighlight || onHighlight;
   const toolbarRef = useRef<HTMLDivElement | null>(null);
@@ -67,7 +77,7 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
   if (!selection) return null;
 
   const existing = selection.existingHighlight;
-  const activeColor = existing ? existing.color : selectedColor;
+  const activeColor = selectedColor || existing?.color || '#facc15';
 
   const handleApplyHighlight = (colorHex: string) => {
     setSelectedColor(colorHex);
@@ -107,6 +117,9 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
   };
 
   const handleOpenNoteEditor = () => {
+    if (existing?.color) {
+      setSelectedColor(existing.color);
+    }
     setNoteText(existing?.note || '');
     setIsNoteEditorOpen(true);
   };
@@ -133,10 +146,15 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
     onClose();
   };
 
-  const handleDelete = () => {
+  const handleRequestDelete = () => {
+    setIsDeleteConfirmOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
     if (existing && onDeleteHighlight) {
       onDeleteHighlight(existing.id);
     }
+    setIsDeleteConfirmOpen(false);
     setIsNoteEditorOpen(false);
     onClose();
   };
@@ -188,17 +206,21 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        if (isDeleteConfirmOpen) {
+          setIsDeleteConfirmOpen(false);
+        } else {
+          onClose();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [onClose, isDeleteConfirmOpen]);
 
   // Outside click listener
   useEffect(() => {
     const handleDocumentPointerDown = (e: MouseEvent | TouchEvent) => {
-      if (isNoteEditorOpen) return;
+      if (isNoteEditorOpen || isDeleteConfirmOpen) return;
       const target = e.target as Node | null;
       if (toolbarRef.current && target && toolbarRef.current.contains(target)) {
         return;
@@ -217,12 +239,12 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
       document.removeEventListener('mousedown', handleDocumentPointerDown);
       document.removeEventListener('touchstart', handleDocumentPointerDown);
     };
-  }, [onClose, isNoteEditorOpen]);
+  }, [onClose, isNoteEditorOpen, isDeleteConfirmOpen]);
 
   const toolbarNode = (
     <>
       {/* Floating Selection Action Menu via Portal to document.body */}
-      {!isNoteEditorOpen && (
+      {!isNoteEditorOpen && !isDeleteConfirmOpen && (
         <div
           ref={toolbarRef}
           className="fixed z-[999999] animate-in fade-in zoom-in-95 duration-150 select-none font-sans pointer-events-auto shadow-2xl"
@@ -314,15 +336,15 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
                 )}
               </button>
 
-              {/* 4. Optional Delete Button */}
+              {/* 4. Optional Delete Button (Opens Confirmation Dialog) */}
               {existing && (
                 <>
                   <div className="w-px h-5 bg-stone-800 mx-1" />
                   <button
-                    onClick={handleDelete}
+                    onClick={handleRequestDelete}
                     onMouseDown={(e) => e.preventDefault()}
-                    className="flex-none p-1.5 rounded-lg hover:bg-stone-800 text-stone-400 hover:text-white active:scale-95 transition cursor-pointer"
-                    title="Remove Highlight"
+                    className="flex-none p-1.5 rounded-lg hover:bg-stone-800 text-stone-400 hover:text-red-400 active:scale-95 transition cursor-pointer"
+                    title="Delete Highlight"
                   >
                     <Trash2 size={13} />
                   </button>
@@ -346,7 +368,7 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
 
       {/* Note Editor Modal Dialog */}
       <AnimatePresence>
-        {isNoteEditorOpen && (
+        {isNoteEditorOpen && !isDeleteConfirmOpen && (
           <div
             className="fixed inset-0 z-[999999] flex items-center justify-center p-3 bg-black/80 backdrop-blur-xs animate-in fade-in"
             onClick={() => setIsNoteEditorOpen(false)}
@@ -423,8 +445,8 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
               <div className="flex items-center justify-between pt-2 border-t border-stone-800">
                 {existing ? (
                   <button
-                    onClick={handleDelete}
-                    className="flex items-center gap-1.5 text-xs text-stone-400 hover:text-white px-3 py-1.5 rounded-lg hover:bg-stone-800 transition cursor-pointer"
+                    onClick={handleRequestDelete}
+                    className="flex items-center gap-1.5 text-xs text-stone-400 hover:text-red-400 px-3 py-1.5 rounded-lg hover:bg-stone-800 transition cursor-pointer"
                   >
                     <Trash2 size={13} />
                     <span>Delete Highlight</span>
@@ -447,6 +469,72 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
                     Save Note
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Highlight Confirmation Modal Dialog */}
+      <AnimatePresence>
+        {isDeleteConfirmOpen && existing && (
+          <div
+            className="fixed inset-0 z-[999999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs font-sans"
+            onClick={() => setIsDeleteConfirmOpen(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm bg-[var(--paper-sheet,#FAF8F4)] border border-[var(--paper-border-strong,#D6D0C4)] text-[var(--ink-primary,#161514)] rounded-xl shadow-2xl p-5 space-y-4"
+            >
+              <div className="flex items-center justify-between border-b border-[var(--paper-border,#E6E1D6)] pb-2.5">
+                <h3 className="font-literata font-semibold text-sm sm:text-base text-[var(--ink-primary,#161514)]">
+                  {existing.note ? 'Delete Highlight & Note?' : 'Delete Highlight?'}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setIsDeleteConfirmOpen(false)}
+                  className="text-[var(--ink-secondary,#57534E)] hover:text-[var(--ink-primary,#161514)] p-1 rounded cursor-pointer"
+                  aria-label="Close"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+
+              <div className="space-y-2.5">
+                <p className="text-xs text-[var(--ink-primary,#161514)] leading-relaxed">
+                  Are you sure you want to delete this highlight from{' '}
+                  <strong className="font-semibold">Page {selection.pageNumber}</strong>?
+                </p>
+
+                {selection.text && (
+                  <div className="p-2.5 bg-[var(--paper-bg,#F4F0E8)] border border-[var(--paper-border,#E6E1D6)] rounded-lg text-[11px] text-[var(--ink-secondary,#57534E)] line-clamp-3 italic font-literata">
+                    “{selection.text}”
+                  </div>
+                )}
+
+                <p className="text-[11px] text-[var(--ink-secondary,#57534E)]">
+                  This action cannot be undone.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--paper-border,#E6E1D6)]">
+                <button
+                  type="button"
+                  onClick={() => setIsDeleteConfirmOpen(false)}
+                  className="h-8.5 px-3.5 text-xs font-medium bg-[var(--paper-bg,#F4F0E8)] hover:bg-[var(--paper-subtle,#EBE5D9)] text-[var(--ink-primary,#161514)] border border-[var(--paper-border-strong,#D6D0C4)] rounded-lg cursor-pointer transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDelete}
+                  className="h-8.5 px-4 text-xs font-medium bg-[#7F2323] hover:bg-[#661A1A] text-[#FAF8F4] rounded-lg cursor-pointer transition"
+                >
+                  Yes, Delete
+                </button>
               </div>
             </motion.div>
           </div>

@@ -171,10 +171,50 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
     onChangeTheme?.(nextTheme);
   };
 
-  const [fontSize, setFontSize] = useState<number>(17);
-  const [fontFamily, setFontFamily] = useState<FontOption>('classic-serif');
-  const [lineHeight, setLineHeight] = useState<number>(1.65);
-  const [margins, setMargins] = useState<'compact' | 'normal' | 'spacious'>('normal');
+  const [fontSize, setFontSize] = useState<number>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('ereader_typography_prefs_v1') || '{}');
+      if (typeof saved.fontSize === 'number' && saved.fontSize >= 12 && saved.fontSize <= 32) {
+        return saved.fontSize;
+      }
+    } catch {}
+    return 17;
+  });
+  const [fontFamily, setFontFamily] = useState<FontOption>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('ereader_typography_prefs_v1') || '{}');
+      if (saved.fontFamily) return saved.fontFamily as FontOption;
+    } catch {}
+    return 'classic-serif';
+  });
+  const [lineHeight, setLineHeight] = useState<number>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('ereader_typography_prefs_v1') || '{}');
+      if (typeof saved.lineHeight === 'number' && saved.lineHeight >= 1.2 && saved.lineHeight <= 2.4) {
+        return saved.lineHeight;
+      }
+    } catch {}
+    return 1.65;
+  });
+  const [margins, setMargins] = useState<'compact' | 'normal' | 'spacious'>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('ereader_typography_prefs_v1') || '{}');
+      if (saved.margins === 'compact' || saved.margins === 'normal' || saved.margins === 'spacious') {
+        return saved.margins;
+      }
+    } catch {}
+    return 'normal';
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        'ereader_typography_prefs_v1',
+        JSON.stringify({ fontSize, fontFamily, lineHeight, margins })
+      );
+    } catch {}
+  }, [fontSize, fontFamily, lineHeight, margins]);
+
   const [activeMenu, setActiveMenu] = useState<'theme' | 'toc' | null>(null);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
@@ -197,8 +237,15 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
   const textLayerRef = useRef<HTMLDivElement>(null);
   const dualTextLayerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const pdfScrollContainerRef = useRef<HTMLDivElement>(null);
   const currentRenderTaskRef = useRef<any>(null);
   const dualRenderTaskRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (pdfScrollContainerRef.current) {
+      pdfScrollContainerRef.current.scrollTop = 0;
+    }
+  }, [currentPage, book.id]);
 
   const [activeSelection, setActiveSelection] = useState<SelectionRangeData | null>(null);
   const [isNotesModalOpen, setIsNotesModalOpen] = useState<boolean>(false);
@@ -314,28 +361,49 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
     };
   }, [book.id, isPdf, pdfReloadTrigger]);
 
+  const currentPageRef = useRef<number>(currentPage);
+  currentPageRef.current = currentPage;
+
+  const onUpdateProgressRef = useRef(onUpdateProgress);
+  onUpdateProgressRef.current = onUpdateProgress;
+
+  const userHasTurnedPageRef = useRef<boolean>(false);
+
   // Sync state when switching books
   useEffect(() => {
     initialMountRef.current = true;
-    const validInitial = Math.max(1, Math.min(book.currentPage || 1, Math.max(1, book.totalPages || 1)));
+    userHasTurnedPageRef.current = false;
+    const safeTotal = Math.max(1, book.totalPages || 1, book.currentPage || 1);
+    const validInitial = Math.max(1, Math.min(book.currentPage || 1, safeTotal));
     setCurrentPage(validInitial);
-    setTotalPages(Math.max(1, book.totalPages || 1));
+    setTotalPages((prev) => Math.max(prev, safeTotal));
     setExtractedTextCache({});
     if (book.preferredReadingMode) {
       setReadingMode(book.preferredReadingMode);
     }
   }, [book.id]);
 
-  // Sync progress back to App when page turns (skipping initial mount overwrite)
+  // If book.currentPage hydrates asynchronously from cloud/ledger before user turns a page, adopt it
+  useEffect(() => {
+    if (!userHasTurnedPageRef.current && book.currentPage && book.currentPage > 1 && book.currentPage !== currentPage) {
+      initialMountRef.current = true;
+      const safeTotal = Math.max(totalPages, book.totalPages || 1, book.currentPage);
+      setTotalPages(safeTotal);
+      setCurrentPage(book.currentPage);
+    }
+  }, [book.currentPage, book.totalPages, currentPage, totalPages]);
+
+  // Sync progress back to App when page turns (skipping initial mount/hydration overwrite)
   useEffect(() => {
     if (initialMountRef.current) {
       initialMountRef.current = false;
       return;
     }
-    onUpdateProgress(book.id, currentPage, 0);
+    userHasTurnedPageRef.current = true;
+    onUpdateProgressRef.current(book.id, currentPage, 0);
   }, [currentPage, book.id]);
 
-  // Active reading time tracker (coalesced every 15s when tab is visible)
+  // Active reading time tracker (coalesced every 15s when tab is visible; uses currentPageRef so cleanup never sends a stale page number)
   const lastActiveTimestampRef = useRef<number>(Date.now());
   useEffect(() => {
     lastActiveTimestampRef.current = Date.now();
@@ -348,7 +416,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
       const elapsedSec = Math.floor((now - lastActiveTimestampRef.current) / 1000);
       lastActiveTimestampRef.current = now;
       if (elapsedSec > 0 && elapsedSec <= 60) {
-        onUpdateProgress(book.id, currentPage, elapsedSec);
+        onUpdateProgressRef.current(book.id, currentPageRef.current, elapsedSec);
       }
     }, 15000);
 
@@ -357,10 +425,10 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
       const now = Date.now();
       const elapsedSec = Math.floor((now - lastActiveTimestampRef.current) / 1000);
       if (elapsedSec > 0 && elapsedSec <= 60) {
-        onUpdateProgress(book.id, currentPage, elapsedSec);
+        onUpdateProgressRef.current(book.id, currentPageRef.current, elapsedSec);
       }
     };
-  }, [book.id, currentPage, onUpdateProgress]);
+  }, [book.id]);
 
   // 2. Extract Reflow Text On-Demand for Uploaded PDFs using High-Precision LibreFlow Engine
   useEffect(() => {
@@ -1664,7 +1732,12 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
     };
   }, [book.highlights, currentPage, readingMode]);
 
-  const progressPercent = totalPages > 0 ? Math.round((currentPage / totalPages) * 100) : 0;
+  const progressPercent =
+    totalPages > 0
+      ? currentPage > 1
+        ? Math.min(100, Math.max(1, Math.round((currentPage / totalPages) * 100)))
+        : Math.min(100, Math.max(0, book.progressPercent || 0))
+      : 0;
 
   const renderReflowContent = () => {
     if (currentContent.startsWith('[PAGE_IMAGE:') || currentContent.startsWith('[IMAGE:')) {
@@ -2500,6 +2573,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
       >
         {readingMode === 'original-pdf' && isPdf ? (
           <div
+            ref={pdfScrollContainerRef}
             onWheel={handlePdfWheel}
             onTouchStart={handlePdfTouchStart}
             onTouchMove={handlePdfTouchMove}
@@ -2585,7 +2659,7 @@ export const ReadingInterface: React.FC<ReadingInterfaceProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setReadingMode('reflow-ereader')}
+                      onClick={() => handleSelectReadingMode('reflow-ereader')}
                       className="w-full sm:w-auto px-3.5 py-2 bg-stone-800 text-stone-200 border border-stone-600 rounded-md text-xs font-medium hover:bg-stone-700 transition cursor-pointer"
                     >
                       Switch to Reflow

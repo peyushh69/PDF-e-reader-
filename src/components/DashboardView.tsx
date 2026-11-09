@@ -92,6 +92,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [newStackColor, setNewStackColor] = useState('#161514');
   const [editingBookForStack, setEditingBookForStack] = useState<Book | null>(null);
   const [bookToDelete, setBookToDelete] = useState<Book | null>(null);
+  const [highlightToDelete, setHighlightToDelete] = useState<{
+    bookId: string;
+    highlight: Highlight;
+  } | null>(null);
 
   const handleCreateStackSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -283,22 +287,34 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </div>
 
                     <div className="space-y-1.5 pt-2 max-w-md">
-                      <div className="flex items-center justify-between text-[11px] tabular-nums text-[var(--ink-secondary)]">
-                        <span>
-                          Page {activeBook.currentPage || 1} of {activeBook.totalPages}
-                        </span>
-                        <span className="font-semibold text-[var(--ink-primary)]">
-                          {activeBook.progressPercent || 0}%
-                        </span>
-                      </div>
-                      <div className="w-full h-1.5 bg-[var(--paper-subtle)] border border-[var(--paper-border)] rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-[var(--ink-primary)] rounded-full transition-all duration-200"
-                          style={{
-                            width: `${Math.min(100, Math.max(2, activeBook.progressPercent || 0))}%`,
-                          }}
-                        />
-                      </div>
+                      {(() => {
+                        const curPage = Math.max(1, activeBook.currentPage || 1);
+                        const totPages = Math.max(1, activeBook.totalPages || 1, curPage);
+                        const activePct =
+                          curPage > 1
+                            ? Math.min(100, Math.max(1, Math.round((curPage / totPages) * 100)))
+                            : Math.min(100, Math.max(0, activeBook.progressPercent || 0));
+                        return (
+                          <>
+                            <div className="flex items-center justify-between text-[11px] tabular-nums text-[var(--ink-secondary)]">
+                              <span>
+                                Page {curPage} of {totPages}
+                              </span>
+                              <span className="font-semibold text-[var(--ink-primary)]">
+                                {activePct}%
+                              </span>
+                            </div>
+                            <div className="w-full h-1.5 bg-[var(--paper-subtle)] border border-[var(--paper-border)] rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-[var(--ink-primary)] rounded-full transition-all duration-200"
+                                style={{
+                                  width: `${Math.min(100, Math.max(2, activePct))}%`,
+                                }}
+                              />
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -653,8 +669,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                     <span>{hl.note ? 'Edit Note' : 'Add Note'}</span>
                                   </button>
                                   <button
-                                    onClick={() => onDeleteHighlight?.(selectedNotesBook.id, hl.id)}
-                                    className="p-1 text-[var(--ink-muted)] hover:text-[#8B2626] hover:bg-[var(--paper-subtle)] rounded cursor-pointer transition"
+                                    onClick={() =>
+                                      setHighlightToDelete({
+                                        bookId: selectedNotesBook.id,
+                                        highlight: hl,
+                                      })
+                                    }
+                                    className="p-1.5 text-[var(--ink-muted)] hover:text-[#8B2626] hover:bg-[var(--paper-subtle)] rounded cursor-pointer transition"
                                     title="Delete Entry"
                                   >
                                     <Trash2 size={12} />
@@ -876,9 +897,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3.5 sm:gap-4">
                   {filteredBooks.map((book) => {
+                    const curPage = Math.max(1, book.currentPage || 1);
+                    const totPages = Math.max(1, book.totalPages || 1, curPage);
                     const pct =
-                      book.progressPercent ??
-                      Math.round((book.currentPage / Math.max(1, book.totalPages)) * 100);
+                      curPage > 1
+                        ? Math.min(100, Math.max(1, Math.round((curPage / totPages) * 100)))
+                        : Math.min(100, Math.max(0, book.progressPercent || 0));
 
                     return (
                       <div
@@ -920,7 +944,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             </h4>
                             <div className="text-[11px] text-[var(--ink-secondary)] flex items-center justify-between gap-1 mt-0.5 tabular-nums">
                               <span className="truncate">{book.author}</span>
-                              <span className="shrink-0 font-medium text-[var(--ink-primary)]">{pct}%</span>
+                              <span className="shrink-0 font-medium text-[var(--ink-primary)]">
+                                p. {curPage} · {pct}%
+                              </span>
                             </div>
                           </div>
 
@@ -1144,6 +1170,77 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 onClick={() => {
                   onDeleteBook(bookToDelete.id);
                   setBookToDelete(null);
+                }}
+                className="h-8.5 px-4 text-xs font-medium bg-[#7F2323] hover:bg-[#661A1A] text-[#FAF8F4] rounded-lg cursor-pointer transition"
+              >
+                Yes, Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Confirm Highlight / Note Deletion */}
+      {highlightToDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs font-sans"
+          onClick={() => setHighlightToDelete(null)}
+        >
+          <div
+            className="w-full max-w-sm bg-[var(--paper-sheet)] rounded-xl shadow-2xl border border-[var(--paper-border-strong)] p-5 space-y-4 text-[var(--ink-primary)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-[var(--paper-border)] pb-2.5">
+              <h3 className="font-literata font-semibold text-sm sm:text-base text-[var(--ink-primary)]">
+                {highlightToDelete.highlight.text && highlightToDelete.highlight.note
+                  ? 'Delete Highlight & Note?'
+                  : highlightToDelete.highlight.text
+                  ? 'Delete Highlight?'
+                  : 'Delete Note?'}
+              </h3>
+              <button
+                onClick={() => setHighlightToDelete(null)}
+                className="text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] p-1 rounded cursor-pointer"
+                aria-label="Close"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            <div className="space-y-2.5">
+              <p className="text-xs text-[var(--ink-primary)] leading-relaxed">
+                Are you sure you want to delete this entry from{' '}
+                <strong className="font-semibold">
+                  Page {highlightToDelete.highlight.pageNumber}
+                </strong>
+                ?
+              </p>
+              {(highlightToDelete.highlight.text || highlightToDelete.highlight.note) && (
+                <div className="p-2.5 bg-[var(--paper-bg)] border border-[var(--paper-border)] rounded-lg text-[11px] text-[var(--ink-secondary)] line-clamp-3 italic font-literata">
+                  “{highlightToDelete.highlight.text || highlightToDelete.highlight.note}”
+                </div>
+              )}
+              <p className="text-[11px] text-[var(--ink-secondary)] leading-relaxed">
+                This action cannot be undone.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2.5 border-t border-[var(--paper-border)]">
+              <button
+                type="button"
+                onClick={() => setHighlightToDelete(null)}
+                className="h-8.5 px-3.5 text-xs font-medium bg-[var(--paper-bg)] hover:bg-[var(--paper-subtle)] text-[var(--ink-primary)] border border-[var(--paper-border-strong)] rounded-lg cursor-pointer transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteHighlight?.(
+                    highlightToDelete.bookId,
+                    highlightToDelete.highlight.id
+                  );
+                  setHighlightToDelete(null);
                 }}
                 className="h-8.5 px-4 text-xs font-medium bg-[#7F2323] hover:bg-[#661A1A] text-[#FAF8F4] rounded-lg cursor-pointer transition"
               >

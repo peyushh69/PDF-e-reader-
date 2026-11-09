@@ -95,7 +95,72 @@ function stripUndefined<T extends Record<string, any>>(obj: T): T {
   return result as T;
 }
 
-function sanitizeBooksList(rawBooks: any[]): Book[] {
+function getProgressLedgerKey(uid: string) {
+  return `ereader_progress_ledger_v1_${uid}`;
+}
+
+interface BookProgressEntry {
+  currentPage: number;
+  totalPages: number;
+  progressPercent: number;
+  lastReadDate?: string;
+  lastReadTimestamp: number;
+  totalTimeReadMinutes: number;
+  isFinished?: boolean;
+  preferredReadingMode?: PdfReadingMode;
+}
+
+function readProgressLedger(uid?: string): Record<string, BookProgressEntry> {
+  if (!uid) return {};
+  try {
+    const raw = localStorage.getItem(getProgressLedgerKey(uid));
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        return parsed;
+      }
+    }
+  } catch {}
+  return {};
+}
+
+function writeBookToProgressLedger(uid: string | undefined, book: Book) {
+  if (!uid || !book?.id) return;
+  try {
+    const ledger = readProgressLedger(uid);
+    const validTotal = Math.max(1, book.totalPages || 1, book.currentPage || 1);
+    const clampedPage = Math.max(1, Math.min(book.currentPage || 1, validTotal));
+    const computedPct =
+      clampedPage > 1
+        ? Math.max(1, Math.round((clampedPage / validTotal) * 100))
+        : Math.max(0, Number(book.progressPercent) || 0);
+
+    ledger[book.id] = {
+      currentPage: clampedPage,
+      totalPages: validTotal,
+      progressPercent: Math.min(100, computedPct),
+      lastReadDate: book.lastReadDate || new Date().toISOString().split('T')[0],
+      lastReadTimestamp: book.lastReadTimestamp || Date.now(),
+      totalTimeReadMinutes: Math.max(0, Number(book.totalTimeReadMinutes) || 0),
+      isFinished: Boolean(book.isFinished),
+      preferredReadingMode: book.preferredReadingMode,
+    };
+    localStorage.setItem(getProgressLedgerKey(uid), JSON.stringify(ledger));
+  } catch {}
+}
+
+function computeProgressPercent(currentPage: number, totalPages: number, existingPercent?: number): number {
+  const validTotal = Math.max(1, totalPages || 1, currentPage || 1);
+  const clampedPage = Math.max(1, Math.min(currentPage || 1, validTotal));
+  if (clampedPage > 1) {
+    return Math.min(100, Math.max(1, Math.round((clampedPage / validTotal) * 100)));
+  }
+  return Math.min(100, Math.max(0, Number(existingPercent) || 0));
+}
+
+function sanitizeBooksList(rawBooks: any[], uid?: string): Book[] {
+  const ledger = readProgressLedger(uid);
+
   return rawBooks
     .filter(
       (b) =>
@@ -119,11 +184,47 @@ function sanitizeBooksList(rawBooks: any[]): Book[] {
             subtitle: book.source === 'drive' ? 'Cloud Document' : 'PDF Document',
           });
 
+      const ledgerEntry = ledger[book.id];
+      const bookTs = book.lastReadTimestamp || (book.lastReadDate ? new Date(book.lastReadDate).getTime() : 0);
+      const ledgerTs = ledgerEntry?.lastReadTimestamp || 0;
+
+      // Prefer ledger progress if it is newer OR if incoming book reset to page 1 while ledger has page > 1
+      const useLedger =
+        ledgerEntry &&
+        (ledgerTs > bookTs || ((book.currentPage || 1) <= 1 && ledgerEntry.currentPage > 1));
+
+      const rawTotalPages = Math.max(
+        1,
+        book.totalPages || 1,
+        ledgerEntry?.totalPages || 1,
+        book.currentPage || 1,
+        ledgerEntry?.currentPage || 1
+      );
+      const rawCurrentPage = useLedger
+        ? ledgerEntry.currentPage
+        : Math.max(1, book.currentPage || 1);
+      const clampedCurrentPage = Math.max(1, Math.min(rawCurrentPage, rawTotalPages));
+      const rawProgressPercent = useLedger
+        ? ledgerEntry.progressPercent
+        : book.progressPercent;
+
       return {
         ...book,
         coverUrl,
-        totalPages: Math.max(1, book.totalPages || 1),
-        currentPage: Math.max(1, Math.min(book.currentPage || 1, Math.max(1, book.totalPages || 1))),
+        totalPages: rawTotalPages,
+        currentPage: clampedCurrentPage,
+        progressPercent: computeProgressPercent(clampedCurrentPage, rawTotalPages, rawProgressPercent),
+        totalTimeReadMinutes: Math.max(
+          Number(book.totalTimeReadMinutes) || 0,
+          Number(ledgerEntry?.totalTimeReadMinutes) || 0
+        ),
+        lastReadDate: useLedger && ledgerEntry.lastReadDate ? ledgerEntry.lastReadDate : book.lastReadDate,
+        lastReadTimestamp: Math.max(bookTs, ledgerTs) || undefined,
+        isFinished: useLedger ? Boolean(ledgerEntry.isFinished) : Boolean(book.isFinished),
+        preferredReadingMode:
+          (useLedger && ledgerEntry.preferredReadingMode) ||
+          book.preferredReadingMode ||
+          'reflow-ereader',
         bookmarks: Array.isArray(book.bookmarks) ? book.bookmarks : [],
         highlights: Array.isArray(book.highlights) ? book.highlights : [],
         stackIds: Array.isArray(book.stackIds)
@@ -133,6 +234,97 @@ function sanitizeBooksList(rawBooks: any[]): Book[] {
           book.pdfDataUrl && book.pdfDataUrl.startsWith('blob:') ? undefined : book.pdfDataUrl,
       };
     });
+}
+
+function mergeBooksPreservingProgress(
+  incomingBooks: Book[],
+  existingBooks: Book[],
+  pendingMap: Map<string, { book: Book; timer: any }>,
+  uid?: string
+): { merged: Book[]; booksNeedingCloudResync: Book[] } {
+  const existingById = new Map<string, Book>();
+  existingBooks.forEach((b) => existingById.set(b.id, b));
+
+  const ledger = readProgressLedger(uid);
+  const booksNeedingCloudResync: Book[] = [];
+
+  const merged = incomingBooks.map((inc) => {
+    const pending = pendingMap.get(inc.id)?.book;
+    const local = pending || existingById.get(inc.id);
+    const ledgerEntry = ledger[inc.id];
+
+    const incTs = inc.lastReadTimestamp || (inc.lastReadDate ? new Date(inc.lastReadDate).getTime() : 0);
+    const localTs = local?.lastReadTimestamp || (local?.lastReadDate ? new Date(local.lastReadDate).getTime() : 0);
+    const ledgerTs = ledgerEntry?.lastReadTimestamp || 0;
+
+    let bestPage = inc.currentPage || 1;
+    let bestTotal = Math.max(1, inc.totalPages || 1, bestPage);
+    let bestTs = incTs;
+    let bestDate = inc.lastReadDate;
+    let bestTimeRead = Number(inc.totalTimeReadMinutes) || 0;
+    let bestFinished = Boolean(inc.isFinished);
+    let bestMode = inc.preferredReadingMode || 'reflow-ereader';
+    let needsResync = false;
+
+    if (
+      local &&
+      (Boolean(pending) ||
+        localTs > bestTs ||
+        (bestPage <= 1 && (local.currentPage || 1) > 1))
+    ) {
+      bestPage = local.currentPage || 1;
+      bestTotal = Math.max(bestTotal, local.totalPages || 1, bestPage);
+      bestTs = Math.max(bestTs, localTs);
+      bestDate = local.lastReadDate || bestDate;
+      bestTimeRead = Math.max(bestTimeRead, Number(local.totalTimeReadMinutes) || 0);
+      bestFinished = Boolean(local.isFinished);
+      bestMode = local.preferredReadingMode || bestMode;
+      if (bestPage !== inc.currentPage) needsResync = true;
+    }
+
+    if (
+      ledgerEntry &&
+      (ledgerTs > bestTs || (bestPage <= 1 && ledgerEntry.currentPage > 1))
+    ) {
+      bestPage = ledgerEntry.currentPage;
+      bestTotal = Math.max(bestTotal, ledgerEntry.totalPages || 1, bestPage);
+      bestTs = Math.max(bestTs, ledgerTs);
+      bestDate = ledgerEntry.lastReadDate || bestDate;
+      bestTimeRead = Math.max(bestTimeRead, Number(ledgerEntry.totalTimeReadMinutes) || 0);
+      bestFinished = Boolean(ledgerEntry.isFinished);
+      bestMode = ledgerEntry.preferredReadingMode || bestMode;
+      if (bestPage !== inc.currentPage) needsResync = true;
+    }
+
+    const finalPct = computeProgressPercent(bestPage, bestTotal, inc.progressPercent);
+    const mergedBook: Book = {
+      ...inc,
+      currentPage: bestPage,
+      totalPages: bestTotal,
+      progressPercent: finalPct,
+      lastReadDate: bestDate,
+      lastReadTimestamp: bestTs || undefined,
+      totalTimeReadMinutes: bestTimeRead,
+      isFinished: bestFinished,
+      preferredReadingMode: bestMode,
+      hasCloudBinary: inc.hasCloudBinary ?? local?.hasCloudBinary,
+      chunkCount: inc.chunkCount ?? local?.chunkCount,
+    };
+
+    writeBookToProgressLedger(uid, mergedBook);
+    if (needsResync) {
+      booksNeedingCloudResync.push(mergedBook);
+    }
+    return mergedBook;
+  });
+
+  merged.sort((a, b) => {
+    const timeA = a.lastReadTimestamp || (a.lastReadDate ? new Date(a.lastReadDate).getTime() : 0);
+    const timeB = b.lastReadTimestamp || (b.lastReadDate ? new Date(b.lastReadDate).getTime() : 0);
+    return timeB - timeA;
+  });
+
+  return { merged, booksNeedingCloudResync };
 }
 
 function prepareBookForFirestore(uid: string, book: Book): Record<string, any> {
@@ -282,9 +474,12 @@ export default function App() {
     };
   }, []);
 
-  // Immediate Firestore write for a book
+  // Immediate Firestore write for a book (with merge: true so cloud chunk metadata is never erased)
   const syncBookToCloud = useCallback(
     async (book: Book) => {
+      if (user?.uid) {
+        writeBookToProgressLedger(user.uid, book);
+      }
       if (!user || user.isLocalProfile || !isFirebaseReady || !db) return;
       const pending = pendingBookSyncTimersRef.current.get(book.id);
       if (pending) {
@@ -293,7 +488,11 @@ export default function App() {
       }
       const path = `users/${user.uid}/books/${book.id}`;
       try {
-        await setDoc(doc(db, 'users', user.uid, 'books', book.id), prepareBookForFirestore(user.uid, book));
+        await setDoc(
+          doc(db, 'users', user.uid, 'books', book.id),
+          prepareBookForFirestore(user.uid, book),
+          { merge: true }
+        );
       } catch (err) {
         handleFirestoreError(err, OperationType.WRITE, path);
       }
@@ -303,8 +502,9 @@ export default function App() {
 
   // Coalesced/debounced Firestore write for frequent page-turn & reading-time updates
   const queueBookSync = useCallback(
-    (book: Book, delayMs = 1200) => {
+    (book: Book, delayMs = 350) => {
       if (!user) return;
+      writeBookToProgressLedger(user.uid, book);
       const existing = pendingBookSyncTimersRef.current.get(book.id);
       if (existing) {
         clearTimeout(existing.timer);
@@ -326,6 +526,26 @@ export default function App() {
     });
     pendingBookSyncTimersRef.current.clear();
   }, [syncBookToCloud]);
+
+  // Flush pending progress writes whenever tab is hidden, backgrounded on mobile, or closed
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        flushPendingBookSyncs();
+      }
+    };
+    const handlePageHide = () => {
+      flushPendingBookSyncs();
+    };
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('beforeunload', handlePageHide);
+    return () => {
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('beforeunload', handlePageHide);
+    };
+  }, [flushPendingBookSyncs]);
 
   // Helper to persist user profile (stats & settings) to Firestore
   const syncProfileToCloud = useCallback(
@@ -370,7 +590,9 @@ export default function App() {
       if (savedBooks) {
         const parsed = JSON.parse(savedBooks);
         if (Array.isArray(parsed)) {
-          setBooks(sanitizeBooksList(parsed));
+          const sanitizedLocal = sanitizeBooksList(parsed, uid);
+          sanitizedLocal.forEach((b) => writeBookToProgressLedger(uid, b));
+          setBooks(sanitizedLocal);
         }
       } else {
         setBooks([]);
@@ -407,6 +629,30 @@ export default function App() {
     } catch (e) {
       console.warn('Local user cache read notice:', e);
     }
+
+    // Also hydrate from backend server state (/api/state) to recover any progress saved on server
+    fetch(`/api/state?uid=${encodeURIComponent(uid)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((payload) => {
+        const serverBooks = payload?.state?.books;
+        if (Array.isArray(serverBooks) && serverBooks.length > 0) {
+          const sanitizedServer = sanitizeBooksList(serverBooks, uid);
+          setBooks((prev) => {
+            if (prev.length === 0) {
+              sanitizedServer.forEach((b) => writeBookToProgressLedger(uid, b));
+              return sanitizedServer;
+            }
+            const { merged } = mergeBooksPreservingProgress(
+              prev,
+              sanitizedServer,
+              pendingBookSyncTimersRef.current,
+              uid
+            );
+            return merged;
+          });
+        }
+      })
+      .catch(() => {});
 
     if (user.isLocalProfile || !isFirebaseReady || !db) {
       isHydratingRef.current = false;
@@ -465,16 +711,26 @@ export default function App() {
             cloudBooks.push(data as Book);
           }
         });
-        const sanitized = sanitizeBooksList(cloudBooks).sort((a, b) => {
-          const timeA = a.lastReadTimestamp || (a.lastReadDate ? new Date(a.lastReadDate).getTime() : 0);
-          const timeB = b.lastReadTimestamp || (b.lastReadDate ? new Date(b.lastReadDate).getTime() : 0);
-          return timeB - timeA;
+        const sanitizedCloud = sanitizeBooksList(cloudBooks, uid);
+
+        setBooks((prev) => {
+          const { merged, booksNeedingCloudResync } = mergeBooksPreservingProgress(
+            sanitizedCloud,
+            prev,
+            pendingBookSyncTimersRef.current,
+            uid
+          );
+          if (booksNeedingCloudResync.length > 0) {
+            booksNeedingCloudResync.forEach((b) => {
+              queueBookSync(b, 500);
+            });
+          }
+          return merged;
         });
-        setBooks(sanitized);
         isHydratingRef.current = false;
 
         // Auto-backfill cloud PDF chunks if this device has the PDF in local IndexedDB
-        sanitized.forEach((b) => {
+        sanitizedCloud.forEach((b) => {
           if (!b.hasCloudBinary) {
             getPdfFromStorage(b.id, uid)
               .then((bytes) => {
@@ -561,6 +817,51 @@ export default function App() {
     } catch (e) {}
   }, [hardwareTheme, environmentBg, eyeProtection, readingTheme, user]);
 
+  // Computed stats enriched with live book metrics & consecutive reading dates
+  const computedStats = useMemo<ReadingStats>(() => {
+    const finishedCount = books.filter((b) => b.isFinished || (b.progressPercent || 0) >= 100).length;
+    const pagesReadCount = books.reduce((sum, b) => {
+      const readPages =
+        (b.currentPage || 1) > 1 || (b.progressPercent || 0) > 0
+          ? Math.max(1, b.currentPage || 1)
+          : 0;
+      return sum + readPages;
+    }, 0);
+
+    // Compute consecutive reading day streak from book dates as well
+    const activeDatesSet = new Set<string>();
+    books.forEach((b) => {
+      if (b.addedDate) activeDatesSet.add(b.addedDate);
+      if (b.lastReadDate) activeDatesSet.add(b.lastReadDate);
+    });
+    const sortedDates = Array.from(activeDatesSet).sort().reverse();
+    let derivedStreak = sortedDates.length > 0 ? 1 : 0;
+    for (let i = 0; i < sortedDates.length - 1; i++) {
+      const d1 = new Date(`${sortedDates[i]}T00:00:00Z`).getTime();
+      const d2 = new Date(`${sortedDates[i + 1]}T00:00:00Z`).getTime();
+      const diffDays = Math.round((d1 - d2) / (1000 * 60 * 60 * 24));
+      if (diffDays === 1) {
+        derivedStreak++;
+      } else if (diffDays > 1) {
+        break;
+      }
+    }
+
+    const totalHoursFromBooks = Number(
+      (
+        books.reduce((sum, b) => sum + (Number(b.totalTimeReadMinutes) || 0), 0) / 60
+      ).toFixed(2)
+    );
+
+    return {
+      ...stats,
+      totalHours: Math.max(stats.totalHours || 0, totalHoursFromBooks),
+      currentStreakDays: Math.max(stats.currentStreakDays || 0, derivedStreak),
+      totalBooksFinished: finishedCount,
+      totalPagesRead: Math.max(stats.totalPagesRead || 0, pagesReadCount),
+    };
+  }, [stats, books]);
+
   // Debounced sync of profile (stats + settings) to Firestore & Express Server
   useEffect(() => {
     if (!user || isHydratingRef.current) return;
@@ -571,7 +872,7 @@ export default function App() {
         eyeProtection,
         readingTheme,
       };
-      syncProfileToCloud(stats, settingsPayload);
+      syncProfileToCloud(computedStats, settingsPayload);
 
       const compactBooks = books.map((b) => ({
         ...b,
@@ -584,7 +885,7 @@ export default function App() {
         body: JSON.stringify({
           books: compactBooks,
           stacks,
-          stats,
+          stats: computedStats,
           settings: settingsPayload,
         }),
       }).catch(() => {});
@@ -594,27 +895,13 @@ export default function App() {
     user,
     books,
     stacks,
-    stats,
+    computedStats,
     hardwareTheme,
     environmentBg,
     eyeProtection,
     readingTheme,
     syncProfileToCloud,
   ]);
-
-  // Computed stats enriched with live book metrics
-  const computedStats = useMemo<ReadingStats>(() => {
-    const finishedCount = books.filter((b) => b.isFinished || (b.progressPercent || 0) >= 100).length;
-    const pagesReadCount = books.reduce((sum, b) => {
-      const readPages = b.progressPercent > 0 ? Math.max(1, b.currentPage || 1) : 0;
-      return sum + readPages;
-    }, 0);
-    return {
-      ...stats,
-      totalBooksFinished: finishedCount,
-      totalPagesRead: Math.max(stats.totalPagesRead || 0, pagesReadCount),
-    };
-  }, [stats, books]);
 
   const currentlyReadingBook = useMemo(() => {
     if (books.length === 0) return null;
@@ -641,15 +928,46 @@ export default function App() {
       currentStreakDays: prev.currentStreakDays === 0 ? 1 : prev.currentStreakDays,
     }));
 
-    const updatedBook: Book = {
-      ...book,
-      lastReadDate: today,
-      lastReadTimestamp: now,
-      ...(mode ? { preferredReadingMode: mode } : {}),
-    };
+    let syncedBook: Book | null = null;
+    setBooks((prev) =>
+      prev.map((b) => {
+        if (b.id === book.id) {
+          // If caller passed a specific page (e.g. jumping to a highlight page), use it;
+          // otherwise preserve the highest/latest saved page from state or ledger.
+          const ledgerEntry = readProgressLedger(user?.uid)[b.id];
+          const explicitJumpPage =
+            book.currentPage && book.currentPage !== b.currentPage ? book.currentPage : null;
+          const resolvedPage =
+            explicitJumpPage ||
+            Math.max(1, b.currentPage || 1, book.currentPage || 1, ledgerEntry?.currentPage || 1);
+          const validTotal = Math.max(1, b.totalPages || 1, book.totalPages || 1, resolvedPage);
+          const progressPercent = computeProgressPercent(
+            resolvedPage,
+            validTotal,
+            b.progressPercent ?? book.progressPercent
+          );
 
-    setBooks((prev) => prev.map((b) => (b.id === book.id ? updatedBook : b)));
-    queueBookSync(updatedBook, 600);
+          const updatedBook: Book = {
+            ...b,
+            ...book,
+            currentPage: resolvedPage,
+            totalPages: validTotal,
+            progressPercent,
+            lastReadDate: today,
+            lastReadTimestamp: now,
+            ...(mode ? { preferredReadingMode: mode } : {}),
+          };
+          syncedBook = updatedBook;
+          writeBookToProgressLedger(user?.uid, updatedBook);
+          return updatedBook;
+        }
+        return b;
+      })
+    );
+
+    if (syncedBook) {
+      queueBookSync(syncedBook, 350);
+    }
   };
 
   const handleBackToDashboard = () => {
@@ -662,15 +980,19 @@ export default function App() {
       const now = Date.now();
       const today = new Date().toISOString().split('T')[0];
 
+      let updatedToSync: Book | null = null;
+
       setBooks((prev) =>
         prev.map((b) => {
           if (b.id === bookId) {
-            const validTotal = Math.max(1, b.totalPages || 1);
+            const validTotal = Math.max(1, b.totalPages || 1, newPage || 1);
             const clampedPage = Math.max(1, Math.min(newPage, validTotal));
             const pageChanged = clampedPage !== b.currentPage;
-            const progressPercent = pageChanged
-              ? Math.round((clampedPage / validTotal) * 100)
-              : b.progressPercent || Math.round((clampedPage / validTotal) * 100);
+            const progressPercent = computeProgressPercent(
+              clampedPage,
+              validTotal,
+              b.progressPercent
+            );
             const isFinished =
               clampedPage >= validTotal && (pageChanged || b.isFinished || progressPercent >= 100);
             const addedMinutes = secondsRead > 0 ? Number((secondsRead / 60).toFixed(2)) : 0;
@@ -682,18 +1004,24 @@ export default function App() {
             const updated: Book = {
               ...b,
               currentPage: clampedPage,
+              totalPages: validTotal,
               progressPercent,
               isFinished,
               totalTimeReadMinutes: Number(((b.totalTimeReadMinutes || 0) + addedMinutes).toFixed(2)),
               lastReadDate: today,
               lastReadTimestamp: now,
             };
-            queueBookSync(updated, 1500);
+            updatedToSync = updated;
+            writeBookToProgressLedger(user?.uid, updated);
             return updated;
           }
           return b;
         })
       );
+
+      if (updatedToSync) {
+        queueBookSync(updatedToSync, 350);
+      }
 
       if (secondsRead > 0) {
         setStats((prev) => {
@@ -713,12 +1041,13 @@ export default function App() {
         });
       }
     },
-    [queueBookSync]
+    [queueBookSync, user?.uid]
   );
 
   const handleUpdateBookTotalPages = useCallback(
     (bookId: string, discoveredTotalPages: number) => {
       if (!discoveredTotalPages || discoveredTotalPages < 1) return;
+      let updatedToSync: Book | null = null;
       setBooks((prev) =>
         prev.map((b) => {
           if (b.id === bookId && b.totalPages !== discoveredTotalPages) {
@@ -727,19 +1056,28 @@ export default function App() {
               ...b,
               totalPages: discoveredTotalPages,
               currentPage: clampedCurrent,
-              progressPercent: Math.round((clampedCurrent / discoveredTotalPages) * 100),
+              progressPercent: computeProgressPercent(
+                clampedCurrent,
+                discoveredTotalPages,
+                b.progressPercent
+              ),
             };
-            queueBookSync(updated, 800);
+            updatedToSync = updated;
+            writeBookToProgressLedger(user?.uid, updated);
             return updated;
           }
           return b;
         })
       );
+      if (updatedToSync) {
+        queueBookSync(updatedToSync, 400);
+      }
     },
-    [queueBookSync]
+    [queueBookSync, user?.uid]
   );
 
   const handleAddBookmark = (bookId: string, pageNumber: number) => {
+    let updatedToSync: Book | null = null;
     setBooks((prev) =>
       prev.map((b) => {
         if (b.id === bookId) {
@@ -756,15 +1094,19 @@ export default function App() {
                 },
               ];
           const updated = { ...b, bookmarks: updatedBookmarks };
-          syncBookToCloud(updated);
+          updatedToSync = updated;
           return updated;
         }
         return b;
       })
     );
+    if (updatedToSync) {
+      syncBookToCloud(updatedToSync);
+    }
   };
 
   const handleAddHighlight = (bookId: string, highlight: Highlight) => {
+    let updatedToSync: Book | null = null;
     setBooks((prev) =>
       prev.map((b) => {
         if (b.id === bookId) {
@@ -774,15 +1116,19 @@ export default function App() {
             ...b,
             highlights: [...existing, highlight],
           };
-          syncBookToCloud(updated);
+          updatedToSync = updated;
           return updated;
         }
         return b;
       })
     );
+    if (updatedToSync) {
+      syncBookToCloud(updatedToSync);
+    }
   };
 
   const handleUpdateHighlight = (bookId: string, highlight: Highlight) => {
+    let updatedToSync: Book | null = null;
     setBooks((prev) =>
       prev.map((b) => {
         if (b.id === bookId) {
@@ -791,15 +1137,19 @@ export default function App() {
             ...b,
             highlights: currentHighlights.map((h) => (h.id === highlight.id ? highlight : h)),
           };
-          syncBookToCloud(updated);
+          updatedToSync = updated;
           return updated;
         }
         return b;
       })
     );
+    if (updatedToSync) {
+      syncBookToCloud(updatedToSync);
+    }
   };
 
   const handleDeleteHighlight = (bookId: string, highlightId: string) => {
+    let updatedToSync: Book | null = null;
     setBooks((prev) =>
       prev.map((b) => {
         if (b.id === bookId) {
@@ -808,12 +1158,15 @@ export default function App() {
             ...b,
             highlights: currentHighlights.filter((h) => h.id !== highlightId),
           };
-          syncBookToCloud(updated);
+          updatedToSync = updated;
           return updated;
         }
         return b;
       })
     );
+    if (updatedToSync) {
+      syncBookToCloud(updatedToSync);
+    }
   };
 
   const handleCreateStack = (name: string, color: string, description?: string) => {
@@ -840,6 +1193,7 @@ export default function App() {
 
   const handleDeleteStack = (stackId: string) => {
     setStacks((prev) => prev.filter((s) => s.id !== stackId));
+    const booksToSync: Book[] = [];
     setBooks((prev) =>
       prev.map((b) => {
         if (b.stackIds?.includes(stackId)) {
@@ -847,12 +1201,13 @@ export default function App() {
             ...b,
             stackIds: b.stackIds.filter((id) => id !== stackId),
           };
-          syncBookToCloud(updated);
+          booksToSync.push(updated);
           return updated;
         }
         return b;
       })
     );
+    booksToSync.forEach((b) => syncBookToCloud(b));
 
     if (user && !user.isLocalProfile && isFirebaseReady && db) {
       const path = `users/${user.uid}/stacks/${stackId}`;
@@ -863,6 +1218,7 @@ export default function App() {
   };
 
   const handleToggleBookInStack = (bookId: string, stackId: string) => {
+    let updatedToSync: Book | null = null;
     setBooks((prev) =>
       prev.map((b) => {
         if (b.id === bookId) {
@@ -875,12 +1231,15 @@ export default function App() {
             ...b,
             stackIds: updatedStacks,
           };
-          syncBookToCloud(updated);
+          updatedToSync = updated;
           return updated;
         }
         return b;
       })
     );
+    if (updatedToSync) {
+      syncBookToCloud(updatedToSync);
+    }
   };
 
   const handleBookUploaded = (newBook: Book) => {
@@ -962,7 +1321,16 @@ export default function App() {
       clearTimeout(pending.timer);
       pendingBookSyncTimersRef.current.delete(bookId);
     }
-    deletePdfFromStorage(bookId).catch(() => {});
+    if (user?.uid) {
+      try {
+        const ledger = readProgressLedger(user.uid);
+        if (ledger[bookId]) {
+          delete ledger[bookId];
+          localStorage.setItem(getProgressLedgerKey(user.uid), JSON.stringify(ledger));
+        }
+      } catch {}
+    }
+    deletePdfFromStorage(bookId, user?.uid).catch(() => {});
     setBooks((prev) => prev.filter((b) => b.id !== bookId));
     if (user && !user.isLocalProfile && isFirebaseReady && db) {
       const path = `users/${user.uid}/books/${bookId}`;
@@ -973,6 +1341,7 @@ export default function App() {
   };
 
   const handleUpdateReadingMode = (bookId: string, mode: PdfReadingMode) => {
+    let updatedToSync: Book | null = null;
     setBooks((prev) =>
       prev.map((b) => {
         if (b.id === bookId) {
@@ -980,12 +1349,16 @@ export default function App() {
             ...b,
             preferredReadingMode: mode,
           };
-          queueBookSync(updated, 800);
+          updatedToSync = updated;
+          writeBookToProgressLedger(user?.uid, updated);
           return updated;
         }
         return b;
       })
     );
+    if (updatedToSync) {
+      queueBookSync(updatedToSync, 400);
+    }
   };
 
   const handleFallbackSignIn = (profile: AppUserProfile) => {

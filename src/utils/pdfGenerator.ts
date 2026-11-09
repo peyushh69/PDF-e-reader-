@@ -298,21 +298,30 @@ export function buildBookNotesPdfData(book: Book): CompiledNotesPdfResult {
       [`[HEADING] ${cleanBookTitle}`, 'No highlights or notes saved yet.'].join('\n\n')
     );
   } else {
+    const titleLineCount = Math.max(1, wrapText(cleanBookTitle, 48).length);
+    const firstPageStartY = 736 - 22 - titleLineCount * 22 - 30;
+    const subsequentPageStartY = 734;
+    const bottomMarginY = 78;
+
     let currentBlocks: PdfHighlightBlock[] = [];
     let currentReflowBlocks: string[] = [`[HEADING] ${cleanBookTitle}`];
-    let usedUnits = 5; // Title space on page 1
-    const MAX_UNITS_PER_PAGE = 38;
+    let simY = firstPageStartY;
 
     rawHighlights.forEach((h) => {
       const pageNum = h.pageNumber || 1;
       const quoteText = h.text ? h.text.trim() : '';
       const noteText = h.note ? h.note.trim() : '';
 
-      const quoteLines = quoteText ? Math.max(1, Math.ceil(quoteText.length / 72)) : 0;
-      const noteLines = noteText ? Math.max(1, Math.ceil(noteText.length / 72)) : 0;
-      const blockUnits = 2 + quoteLines + noteLines + 1;
+      const qLines = quoteText ? wrapText(`"${quoteText}"`, 74) : [];
+      const nLines = noteText ? wrapText(`Note: ${noteText}`, 74) : [];
 
-      if (usedUnits + blockUnits > MAX_UNITS_PER_PAGE && currentBlocks.length > 0) {
+      const headerPt = 17;
+      const quotePt = qLines.length > 0 ? qLines.length * 16 + 4 : 0;
+      const notePt = nLines.length > 0 ? nLines.length * 15 + 4 : 0;
+      const dividerPt = currentBlocks.length > 0 ? 24 : 0;
+      const requiredPt = dividerPt + headerPt + quotePt + notePt;
+
+      if (simY - requiredPt < bottomMarginY && currentBlocks.length > 0) {
         pdfPages.push({
           isFirstPage: pdfPages.length === 0,
           bookTitle: pdfPages.length === 0 ? cleanBookTitle : undefined,
@@ -321,15 +330,17 @@ export function buildBookNotesPdfData(book: Book): CompiledNotesPdfResult {
         reflowContentPages.push(currentReflowBlocks.join('\n\n'));
         currentBlocks = [];
         currentReflowBlocks = [];
-        usedUnits = 2;
+        simY = subsequentPageStartY;
       }
+
+      const activeDividerPt = currentBlocks.length > 0 ? 24 : 0;
+      simY -= activeDividerPt + headerPt + quotePt + notePt;
 
       currentBlocks.push({
         pageNumber: pageNum,
         quoteText: quoteText || undefined,
         noteText: noteText || undefined,
       });
-      usedUnits += blockUnits;
 
       currentReflowBlocks.push(`[SUBHEADING] Page ${pageNum}`);
       if (quoteText) {
